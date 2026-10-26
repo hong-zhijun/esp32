@@ -1,0 +1,23 @@
+# 依赖与大模型（按 README 重新安装/下载）
+node_modules/
+desktop/models/
+
+# 编译产物
+build/
+docs/archive/builds/
+
+# 运行时数据、日志（含设备 token）
+*.log
+desktop/cc-bridge/events.jsonl
+desktop/data/device.json
+desktop/data/acknowledged.json
+
+# 第三方仓库与下载包（各自有上游来源）
+docs/waveshare-v2/
+docs/research/token-monitor/
+docs/research/token-monitor.zip
+docs/archive/downloads/
+
+# 系统文件
+.DS_Store
+Thumbs.db

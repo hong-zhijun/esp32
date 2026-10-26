@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 桌面状态屏</title><link rel="stylesheet" href="/style.css"><body>
+<header><div><small>DESK / LIVE</small><h1>AI 桌面状态屏</h1><p>把任务状态放在视线里。</p></div><span id="connection">正在连接服务…</span></header>
+<main><section class="preview-section"><div class="section-title"><h2>屏幕预览</h2><span>640 × 172 · 纯黑横屏</span></div><div class="frame"><div id="screen"></div></div><p id="device">等待设备连接</p><p class="hint">显示真实会话。等你确认时左侧色条缓慢呼吸，执行中底部有细线流动；做完了 10 分钟后自动变灰，在 Claude 里继续对话也会立即更新。网页字体与实物可能略有差异。</p></section>
+<div class="columns"><section><h2>界面设置</h2><form id="design">
+<label>左侧分栏 <output id="splitValue"></output><input name="split" type="range" min="35" max="65" value="50"></label>
+<label>背光亮度 <input name="brightness" type="range" min="25" max="255" value="160"></label>
+<div class="colors"><label>Claude 标识 <input name="claudeColor" type="color" value="#df9877"></label><label>Codex 标识 <input name="codexColor" type="color" value="#63d9ca"></label></div>
+<label class="check"><input name="showTool" type="checkbox" checked>显示当前工具</label><label class="check"><input name="showElapsed" type="checkbox" checked>显示运行时长</label><label class="check"><input name="swap" type="checkbox">交换左右位置</label>
+<button>保存并应用到屏幕</button><span id="saveStatus" role="status"></span></form></section>
+<section><h2>设备配网</h2><p>首次连接保留 USB 数据线，关闭 Arduino 串口监视器。使用 2.4 GHz Wi-Fi。</p><form id="wifi">
+<label>USB 串口 <select name="port" required></select></label><label>电脑局域网地址 <select name="host" required></select></label><label>Wi-Fi 名称 <input name="ssid" required maxlength="32" autocomplete="off"></label><label>Wi-Fi 密码 <input name="password" type="password" maxlength="63" autocomplete="off"></label><button>通过 USB 写入 Wi-Fi 设置</button><p id="wifiStatus" role="status"></p></form><p class="hint">密码仅用于此次写入，不保存在电脑服务中。请勿把此编辑服务直接暴露到公网。</p></section></div>
+<section><h2>会话</h2><p class="hint">Claude：Hooks · Codex：本地日志适配器（开始／本轮结束已观测，权限等待识别尚未验证）。超过 5 分钟没有事件的运行态显示“状态待确认”。</p><div id="sessions"></div></section></main><script src="/app.js"></script></body></html>

@@ -1,0 +1,26 @@
+let latest=null,dirty=false;const form=document.querySelector('#design');
+const names={working:'执行中',waiting:'等你确认',done:'做完了',idle:'空闲',interrupted:'已中断',unknown:'状态待确认'};
+const colors={working:'#6ab2ff',waiting:'#ffc36a',done:'#6ce0ac',idle:'#8b9199',interrupted:'#e29494',unknown:'#8b9199'};
+const strips={...colors,idle:'#333333',unknown:'#333333'};
+const dots={...colors,idle:'#555555',unknown:'#555555'};
+const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
+async function post(url,value){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});const j=await r.json();if(!r.ok)throw Error(j.error||'请求失败');return j;}
+function config(){return Object.fromEntries([...form.elements].filter(e=>e.name).map(e=>[e.name,e.type==='checkbox'?e.checked:['split','brightness'].includes(e.name)?Number(e.value):e.value]));}
+function fill(c){for(const e of form.elements){if(!e.name)continue;if(e.type==='checkbox')e.checked=c[e.name];else e.value=c[e.name];}}
+function render(){if(!latest)return;const c=config();document.querySelector('#splitValue').textContent=c.split+'%';const screen=document.querySelector('#screen');screen.replaceChildren();const cards=c.swap?[...latest.cards].reverse():latest.cards;
+ const clock=(from,to)=>{const t=from&&to>=from?Math.floor((to-from)/1000):0;return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;};
+ cards.forEach((s,i)=>{const card=el('div',undefined,'card');card.style.width=(i?100-c.split:c.split)+'%';const strip=el('div',undefined,'strip'+(s.state==='waiting'?' breathe':''));strip.style.background=strips[s.state];strip.style.animationDelay=-(Date.now()%2600)+'ms';
+ const brand=el('div',s.provider==='claude'?'Claude':'Codex','brand');brand.style.color=c[s.provider+'Color'];const status=el('div',names[s.state],'state');status.style.color=colors[s.state];
+ let detail='';if(s.state==='working'){const tool=c.showTool?s.tool:'';const t=c.showElapsed?clock(s.startedAt,latest.now):'';detail=[tool,t].filter(Boolean).join(' · ');}else if(s.state==='waiting')detail='已等 '+clock(s.updatedAt,latest.now);else if(s.state==='done'&&c.showElapsed&&s.startedAt)detail='用时 '+clock(s.startedAt,s.endedAt);else if(s.state==='unknown')detail='5 分钟没有新动静';
+ const list=el('div',undefined,'list');for(const r of (s.rows||[]).slice(0,3)){const row=el('div',undefined,'row'+(['working','waiting'].includes(r.state)?' active':''));const dot=el('span','●');dot.style.color=dots[r.state]||'#555';row.append(dot,el('span',' '+(r.project||'-')));list.append(row);}
+ card.append(strip,brand,status,el('div',detail,'detail'),list);if(s.state==='working'){const runner=el('div',undefined,'runner');runner.style.animationDelay=-(Date.now()%2400)+'ms';card.append(runner);}screen.append(card);});
+ document.querySelector('#device').textContent=latest.device.connected?'● 屏幕已连接 · 设置可实时应用':'○ 屏幕未连接 · 可先预览和配网';
+ const list=document.querySelector('#sessions');list.replaceChildren();for(const s of latest.sessions.sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,30)){const row=el('div',undefined,'session');row.append(el('span',`${s.provider} · ${s.project} · ${names[s.state]}${s.unread?' · 待查看':''}`));const b=el('button','显示此会话');b.onclick=()=>post('/api/select',{provider:s.provider,id:s.id}).catch(showError);row.append(b);list.append(row);}
+}
+function showError(e){document.querySelector('#saveStatus').textContent=e.message;}
+form.oninput=()=>{dirty=true;render();};form.onsubmit=async e=>{e.preventDefault();try{await post('/api/config',config());dirty=false;document.querySelector('#saveStatus').textContent='已保存';}catch(e){showError(e);}};
+function connect(){const ws=new WebSocket(`ws://${location.host}/live`);ws.onmessage=e=>{latest=JSON.parse(e.data);if(!dirty)fill(latest.config);render();};ws.onopen=()=>document.querySelector('#connection').textContent='● 本地服务在线';ws.onclose=()=>{document.querySelector('#connection').textContent='○ 服务断开，正在重连';setTimeout(connect,2000);};}
+async function setup(){const r=await fetch('/api/setup');const j=await r.json();const w=document.querySelector('#wifi');for(const p of j.ports)w.elements.port.add(new Option(p.path+' · '+p.label,p.path));for(const a of j.addresses)w.elements.host.add(new Option(a,a));}
+document.querySelector('#wifi').onsubmit=async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button'),status=document.querySelector('#wifiStatus');b.disabled=true;status.textContent='正在写入，请保持 USB 连接…';try{await post('/api/provision',Object.fromEntries(new FormData(f)));f.elements.password.value='';status.textContent='已写入！等待板子连接 Wi-Fi，通常需要几秒。';}catch(e){status.textContent=e.message;}finally{b.disabled=false;}};
+connect();setup().catch(showError);
+new ResizeObserver(entries=>{const frame=entries[0].target;const width=frame.clientWidth-parseFloat(getComputedStyle(frame).paddingLeft)-parseFloat(getComputedStyle(frame).paddingRight);const scale=Math.min(1,width/640);const screen=document.querySelector('#screen');screen.style.transformOrigin='top left';screen.style.transform=`scale(${scale})`;screen.style.marginBottom=`${172*(scale-1)}px`;frame.style.overflow='hidden';}).observe(document.querySelector('.frame'));
