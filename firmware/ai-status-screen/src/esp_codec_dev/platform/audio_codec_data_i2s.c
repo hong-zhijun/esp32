@@ -496,7 +496,7 @@ static int _i2s_data_read(const audio_codec_data_if_t *h, uint8_t *data, int siz
         esp_codec_dev_sleep(10);
         return ESP_CODEC_DEV_OK;
     }
-    int ret = i2s_channel_read(rx_chan, data, size, &bytes_read, 1000);
+    int ret = i2s_channel_read(rx_chan, data, size, &bytes_read, 100);
 #else
     int ret = i2s_read(i2s_data->port, data, size, &bytes_read, portMAX_DELAY);
 #endif

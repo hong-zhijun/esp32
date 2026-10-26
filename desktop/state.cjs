@@ -1,5 +1,4 @@
 const path = require('node:path');
-const DONE_FADE_MS = 10*60000;
 const defaults = {split:50,brightness:160,claudeColor:'#df9877',codexColor:'#63d9ca',showTool:true,showElapsed:true,swap:false};
 function validateConfig(input) {
   const result={};
@@ -33,15 +32,16 @@ class State {
   }
   acknowledge(provider,id){const s=this.sessions.get(provider+':'+id);if(s)s.unread=false;}
   snapshot(now=Date.now()){
-    const view=s=>['working','waiting'].includes(s.state)&&now-s.updatedAt>300000?{...s,state:'unknown'}:s.state==='done'&&now-(s.endedAt||s.updatedAt)>DONE_FADE_MS?{...s,state:'idle',unread:false}:{...s};
-    const all=[...this.sessions.values()].filter(s=>now-s.updatedAt<24*3600000).map(view);
+    const view=s=>['working','waiting'].includes(s.state)&&now-s.updatedAt>300000?{...s,state:'unknown'}:s.state==='done'&&!s.unread?{...s,state:'idle'}:{...s};
+    const all=[...this.sessions.values()].filter(s=>(s.state==='done'&&s.unread)||now-s.updatedAt<24*3600000).map(view);
     const cards=['claude','codex'].map(provider=>{
       const rows=all.filter(s=>s.provider===provider).sort((a,b)=>{
         const p=s=>s.state==='waiting'?4:s.state==='working'?3:s.unread?2:1;
         return p(b)-p(a)||b.updatedAt-a.updatedAt;
       });
       const chosen=rows.find(s=>s.id===this.selected[provider])||rows[0];
-      const list=rows.filter((s,i)=>rows.findIndex(o=>o.project===s.project)===i).slice(0,3).map(s=>({project:s.project,state:s.state}));
+      // Existing firmware renders rows.project; use a short task title in that display field.
+      const list=rows.slice(0,3).map(s=>({id:s.id,project:[...(s.title||s.project||s.id)].slice(0,18).join(''),state:s.state}));
       return chosen?{...chosen,count:rows.length,rows:list}:{provider,id:'',state:'idle',project:'',count:0,unread:false,rows:[]};
     });return {cards,sessions:all};
   }

@@ -1,1 +1,17 @@
-{"name":"ai-status-panel","private":true,"version":"0.1.0","scripts":{"start":"node server.cjs","test":"node --test test.cjs"},"dependencies":{"serialport":"^13.0.0","sherpa-onnx-node":"^2.0.0","ws":"^8.18.0"},"devDependencies":{"lv_font_conv":"^1.5.3"}}
+{
+  "name": "ai-status-panel",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test test.cjs wetype-test.cjs"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "sherpa-onnx-node": "^2.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "lv_font_conv": "^1.5.3"
+  }
+}

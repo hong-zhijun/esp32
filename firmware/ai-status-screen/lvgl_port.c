@@ -96,6 +96,19 @@ static void example_lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
   uint8_t buff[32] = {0};
   memset(buff,0,32);
   ESP_ERROR_CHECK_WITHOUT_ABORT(i2c_master_write_read_dev(disp_touch_dev_handle,read_touchpad_cmd,11,buff,32));
+  static bool wait_release = false;
+  bool pressed = buff[1] > 0 && buff[1] < 5;
+  if (panel_ui_is_locked()) {
+    wait_release = true;
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
+  // A finger held through wake must lift before it can press a button.
+  if (wait_release) {
+    if (!pressed) wait_release = false;
+    data->state = LV_INDEV_STATE_REL;
+    return;
+  }
   uint16_t pointX;
   uint16_t pointY;
   pointX = (((uint16_t)buff[2] & 0x0f) << 8) | (uint16_t)buff[3];

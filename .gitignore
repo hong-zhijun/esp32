@@ -11,6 +11,7 @@ docs/archive/builds/
 desktop/cc-bridge/events.jsonl
 desktop/data/device.json
 desktop/data/acknowledged.json
+desktop/data/voice/
 
 # 第三方仓库与下载包（各自有上游来源）
 docs/waveshare-v2/
@@ -21,3 +22,11 @@ docs/archive/downloads/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+desktop/.venv/
+__pycache__/
+
+desktop/installers/
+
+desktop/data/tracked-codex.json
+desktop/data/tracked-codex.json.tmp

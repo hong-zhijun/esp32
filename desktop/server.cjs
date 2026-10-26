@@ -6,13 +6,20 @@ const read=(name,fallback)=>{try{return JSON.parse(fs.readFileSync(path.join(dat
 const save=(name,value)=>{const p=path.join(data,name);fs.writeFileSync(p+'.tmp',JSON.stringify(value,null,2));fs.renameSync(p+'.tmp',p);};
 let config=read('config.json',defaults);try{config=validateConfig(config);}catch{config=defaults;}
 const token=read('device.json',null)?.token||crypto.randomBytes(24).toString('hex');save('device.json',{token});
+const {DebugLog}=require('./debug.cjs');const debugLog=new DebugLog();
 const state=new State(),sources=new Sources(state,root);
-const voice=new Voice(path.join(data,'voice'),async pcm=>{const text=recognize(pcm);if(text)await typeText(text);return text;});const devices=new Set();let lastDeviceAt=0;let serialBusy=false;
+const {WeTypeVoice,check:checkWeType,outputDevice}=require('./wetype-voice.cjs');
+const {shortcutLabel}=require('./wetype-control.cjs');
+const voiceBackend=process.env.VOICE_BACKEND||'wetype';
+let voiceStatus={backend:voiceBackend,ready:voiceBackend==='local',message:voiceBackend==='wetype'?'正在检查虚拟麦克风':'本地模型'};
+const voice=voiceBackend==='local'?new Voice(path.join(data,'voice'),recognize,typeText,{live:true,log:event=>debugLog.add(event)}):new WeTypeVoice({log:event=>debugLog.add(event)});let voiceOwner=null;
+async function checkVoice(){try{const result=await checkWeType();voiceStatus={backend:voiceBackend,ready:true,message:result.device.name+' 已就绪；微信语音快捷键：'+shortcutLabel,device:outputDevice()};}catch(e){voiceStatus={backend:voiceBackend,ready:false,message:e.message,device:outputDevice()};}return voiceStatus;}
+const devices=new Set();let lastDeviceAt=0;let serialBusy=false;
 const acknowledged=read('acknowledged.json',{});
 function acknowledge(provider,id){const s=state.sessions.get(provider+':'+id);if(s){acknowledged[provider+':'+id]=s.updatedAt;save('acknowledged.json',acknowledged);state.acknowledge(provider,id);}}
 const isLocal=req=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
 const addresses=()=>Object.values(os.networkInterfaces()).flat().filter(x=>x.family==='IPv4'&&!x.internal&&!x.address.startsWith('198.18.')).map(x=>x.address).sort((a,b)=>Number(/^(192\.168\.|10\.)/.test(b))-Number(/^(192\.168\.|10\.)/.test(a)));
-function snapshot(){return {type:'state',now:Date.now(),config,...state.snapshot(),device:{connected:devices.size>0,lastSeen:lastDeviceAt},sources:{claude:'hooks',codex:'local-rollout',errors:sources.errors}};}
+function snapshot(){return {type:'state',now:Date.now(),config,voice:voiceStatus,...state.snapshot(),device:{connected:devices.size>0,lastSeen:lastDeviceAt},sources:{claude:'hooks',codex:'local-rollout',errors:sources.errors}};}
 function broadcast(){const payload=JSON.stringify(snapshot());for(const c of wss.clients){if(c.readyState===1)c.send(payload);}}
 async function body(req){let s='';for await(const c of req){s+=c;if(s.length>8192)throw Error('Request too large');}return JSON.parse(s||'{}');}
 async function provision(input){
@@ -36,6 +43,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&req.headers.origin&&req.headers.origin!==`http://localhost:${port}`&&req.headers.origin!==`http://127.0.0.1:${port}`){res.writeHead(403);return res.end();}
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
   if(req.url==='/api/state'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(snapshot()));}
+  if(req.url==='/api/voice-status'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(await checkVoice()));}
   if(req.url==='/api/setup'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({addresses:addresses(),ports:(await SerialPort.list()).map(p=>({path:p.path,label:p.friendlyName||p.manufacturer||p.path}))}));}
   if(req.method==='POST'){
    const b=await body(req);
@@ -52,6 +60,7 @@ const server=http.createServer(async(req,res)=>{
  }catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:e.message}));}
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:8192});
+debugLog.listeners.add(entry=>{const payload=JSON.stringify({type:'debug',entries:[entry]});for(const c of wss.clients)if(!c.isDevice&&c.readyState===1)c.send(payload);});
 server.on('connection',socket=>{if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(socket.remoteAddress))console.log(JSON.stringify({event:'tcp-connect',remote:socket.remoteAddress,time:new Date().toISOString()}));});
 server.on('clientError',(err,socket)=>{console.log(JSON.stringify({event:'http-error',code:err.code,remote:socket.remoteAddress}));socket.destroy();});
 server.on('upgrade',(req,socket,head)=>{
@@ -60,13 +69,13 @@ server.on('upgrade',(req,socket,head)=>{
  if(url.pathname==='/device')console.log(JSON.stringify({event:'device-handshake',time:new Date().toISOString(),remote:socket.remoteAddress,authorized:device}));
  if(!device&&!browser){socket.destroy();return;}
  wss.handleUpgrade(req,socket,head,ws=>{ws.isDevice=device;ws.alive=true;ws.on('pong',()=>{ws.alive=true;if(device)lastDeviceAt=Date.now();});
-  if(device){devices.add(ws);lastDeviceAt=Date.now();}
-  ws.on('close',(code)=>{devices.delete(ws);if(device)console.log(JSON.stringify({event:'device-close',code,time:new Date().toISOString()}));});ws.on('error',()=>{});
-  ws.on('message',(raw,binary)=>{if(device&&binary)return voice.audio(raw);try{const m=JSON.parse(raw);if(device&&m.type==='ack'){acknowledge(m.provider,m.id);broadcast();}
-   if(device&&m.type==='voice'){if(m.action==='start')voice.start();if(m.action==='stop')voice.stop(r=>{if(ws.readyState===1)ws.send(JSON.stringify(r));});}}catch{}});
-  ws.send(JSON.stringify(snapshot()));
+  if(device){devices.add(ws);lastDeviceAt=Date.now();debugLog.add({event:'device-connected'});}
+  ws.on('close',(code)=>{if(voiceOwner===ws){voice.cancel?.();voiceOwner=null;}devices.delete(ws);if(device)debugLog.add({event:'device-disconnected',code});if(device)console.log(JSON.stringify({event:'device-close',code,time:new Date().toISOString()}));});ws.on('error',()=>{});
+  ws.on('message',(raw,binary)=>{if(device&&binary){if(voiceOwner===ws)voice.audio(raw);return;}try{const m=JSON.parse(raw);if(device&&m.type==='voice-performance'){const metrics={event:'device-performance',recording:!!m.recording,screenLocked:!!m.screenLocked};for(const key of ['loopMs','readMs','sendMs','readErrors','sendErrors','rssi'])metrics[key]=Number(m[key])||0;debugLog.add(metrics);return;}if(device&&m.type==='voice-debug'){debugLog.add({event:'button',source:m.source==='touch'?'屏幕触摸':'BOOT',deviceMs:Number(m.deviceMs)||0});return;}if(device&&m.type==='ack'){acknowledge(m.provider,m.id);broadcast();}
+   if(device&&m.type==='voice'){if(m.action==='start'){if(voiceOwner&&voiceOwner!==ws)return;voiceOwner=ws;voice.start(r=>{if(ws.readyState===1)ws.send(JSON.stringify(r));});}if(m.action==='stop'&&voiceOwner===ws)voice.stop(r=>{if(ws.readyState===1)ws.send(JSON.stringify(r));});}}catch{}});
+  ws.send(JSON.stringify(snapshot()));if(!device)ws.send(JSON.stringify({type:'debug',entries:debugLog.entries}));
  });
 });
 setInterval(()=>{sources.tick();for(const [key,s] of state.sessions){if(acknowledged[key]>=s.updatedAt)s.unread=false;}broadcast();},1000);
 setInterval(()=>{for(const c of wss.clients){if(!c.alive){c.terminate();continue;}c.alive=false;c.ping();}},30000);
-server.listen(port,'0.0.0.0',()=>{console.log(`Status editor: http://localhost:${port}`);setTimeout(()=>{try{loadRecognizer();}catch(e){console.log(JSON.stringify({event:'voice-model',message:e.message}));}},100);});
+server.listen(port,'0.0.0.0',()=>{console.log(`Status editor: http://localhost:${port}`);if(voiceBackend==='wetype')checkVoice();else setTimeout(()=>{try{loadRecognizer();}catch(e){console.log(JSON.stringify({event:'voice-model',message:e.message}));}},100);});
