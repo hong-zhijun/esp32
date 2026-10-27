@@ -1,5 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),{EventEmitter}=require('node:events'),{PassThrough}=require('node:stream');
 const {WeTypeVoice}=require('./wetype-voice.cjs');
+// Every worker is replaced by fakeChild. Use this existing fixture as the
+// dependency path sentinel so unit tests do not require a local Python venv.
+process.env.VOICE_PYTHON=__filename;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function fakeChild(ready=true){const c=new EventEmitter();c.stdin=new PassThrough();c.stdout=new PassThrough();c.stderr=new PassThrough();c.received=[];c.stdin.on('data',b=>c.received.push(Buffer.from(b)));c.stdin.on('finish',()=>setImmediate(()=>c.emit('close',0)));c.kill=()=>setImmediate(()=>c.emit('close',1));if(ready)setImmediate(()=>c.stdout.write(JSON.stringify({event:'ready',device:{name:'Test cable'}})+'\n'));return c;}
 test('wireless bridge buffers initial audio, streams exact PCM, drains then stops WeType',async()=>{const c=fakeChild(),keys=[],logs=[],replies=[];const v=new WeTypeVoice({watch:()=>()=>{},spawnProcess:()=>c,trigger:async()=>keys.push(Date.now()),log:e=>logs.push(e)});v.start(r=>replies.push(r));const a=Buffer.alloc(640,7),b=Buffer.alloc(640,8);v.audio(a);await v.session.readyPromise;assert.equal(keys.length,1);v.audio(b);await v.stop(r=>replies.push(r));assert.deepEqual(Buffer.concat(c.received),Buffer.concat([a,b]));assert.equal(keys.length,2);assert.equal(replies.at(-1).state,'finished');assert.equal(v.session,null);assert.equal(logs.filter(x=>x.event==='wetype-started').length,1);});

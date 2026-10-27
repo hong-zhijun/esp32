@@ -4,10 +4,12 @@ desktop/models/
 
 # 编译产物
 build/
+target/
 docs/archive/builds/
 
 # 运行时数据、日志（含设备 token）
 *.log
+*.etl
 desktop/cc-bridge/events.jsonl
 desktop/data/device.json
 desktop/data/acknowledged.json
@@ -25,8 +27,11 @@ Thumbs.db
 
 desktop/.venv/
 __pycache__/
+*.py[cod]
 
 desktop/installers/
 
 desktop/data/tracked-codex.json
 desktop/data/tracked-codex.json.tmp
+desktop/data/tracked-deepseek.json
+desktop/data/tracked-deepseek.json.tmp

@@ -1,4 +1,6 @@
 #include "panel_ui.h"
+#include "panel_row.h"
+#include "provider_logos.h"
 #include "lvgl.h"
 #include <ArduinoJson.h>
 #include "src/lcd_bl_bsp/lcd_bl_pwm_bsp.h"
@@ -8,8 +10,14 @@
 LV_FONT_DECLARE(panel_font_16);
 LV_FONT_DECLARE(panel_font_24);
 LV_FONT_DECLARE(panel_font_30);
-static lv_obj_t *panels[2],*strips[2],*brands[2],*states[2],*details[2],*lists[2][3],*runners[2],*banner;
-static char lastState[2][16];static int lastWidth[2]={-1,-1};
+static constexpr int PANEL_COUNT=3;
+static lv_obj_t *panels[PANEL_COUNT],*strips[PANEL_COUNT],*brands[PANEL_COUNT],*states[PANEL_COUNT],*details[PANEL_COUNT],*runners[PANEL_COUNT],*banner;
+static lv_obj_t *brandIcons[PANEL_COUNT];
+static panel_row_t lists[PANEL_COUNT][3];
+static char lastState[PANEL_COUNT][16];static int lastWidth[PANEL_COUNT]={-1,-1,-1};
+// The second column is labeled ChatGPT; its wire provider remains "codex".
+static const char *providerNames[PANEL_COUNT]={"Claude","ChatGPT","DeepSeek"};
+static const uint32_t providerColors[PANEL_COUNT]={0xdf9877,0x63d9ca,0x7c9fff};
 static int lastBrightness=-1;
 static std::atomic<bool> screenLocked{false};
 static constexpr int CONTENT_WIDTH=512;
@@ -59,7 +67,7 @@ static void voice_clock(lv_timer_t *timer){
  }
 }
 static lv_obj_t *label(lv_obj_t *parent,int x,int y,int width,const lv_font_t *font,uint32_t color){
- auto *l=lv_label_create(parent);lv_obj_set_pos(l,x,y);lv_obj_set_width(l,width);lv_obj_set_style_text_font(l,font,0);lv_obj_set_style_text_color(l,lv_color_hex(color),0);lv_label_set_long_mode(l,LV_LABEL_LONG_DOT);lv_label_set_text(l,"");return l;
+ auto *l=lv_label_create(parent);lv_obj_set_pos(l,x,y);lv_obj_set_size(l,width,lv_font_get_line_height(font));lv_obj_set_style_text_font(l,font,0);lv_obj_set_style_text_color(l,lv_color_hex(color),0);lv_label_set_long_mode(l,LV_LABEL_LONG_DOT);lv_label_set_text(l,"");return l;
 }
 static lv_obj_t *block(lv_obj_t *parent,int x,int y,int w,int h,uint32_t color){
  auto *b=lv_obj_create(parent);lv_obj_remove_style_all(b);lv_obj_set_pos(b,x,y);lv_obj_set_size(b,w,h);lv_obj_set_style_bg_color(b,lv_color_hex(color),0);lv_obj_set_style_bg_opa(b,LV_OPA_COVER,0);lv_obj_clear_flag(b,LV_OBJ_FLAG_CLICKABLE);return b;
@@ -76,14 +84,17 @@ static void animate(int i,const char *st,int width){
 }
 void panel_ui_init(){
  lv_obj_set_style_bg_color(lv_scr_act(),lv_color_hex(0),0);lv_obj_clear_flag(lv_scr_act(),LV_OBJ_FLAG_SCROLLABLE);
- for(int i=0;i<2;i++){
-  panels[i]=lv_obj_create(lv_scr_act());lv_obj_remove_style_all(panels[i]);lv_obj_set_pos(panels[i],i*(CONTENT_WIDTH/2),0);lv_obj_set_size(panels[i],CONTENT_WIDTH/2,172);lv_obj_clear_flag(panels[i],LV_OBJ_FLAG_SCROLLABLE);
+ for(int i=0;i<PANEL_COUNT;i++){
+  int x=i*CONTENT_WIDTH/PANEL_COUNT,width=(i+1)*CONTENT_WIDTH/PANEL_COUNT-x;
+  panels[i]=lv_obj_create(lv_scr_act());lv_obj_remove_style_all(panels[i]);lv_obj_set_pos(panels[i],x,0);lv_obj_set_size(panels[i],width,172);lv_obj_clear_flag(panels[i],LV_OBJ_FLAG_SCROLLABLE);
   if(i){lv_obj_set_style_border_side(panels[i],LV_BORDER_SIDE_LEFT,0);lv_obj_set_style_border_width(panels[i],1,0);lv_obj_set_style_border_color(panels[i],lv_color_hex(0x1c1c1c),0);}
   strips[i]=block(panels[i],0,0,6,172,0x333333);
-  brands[i]=label(panels[i],22,4,CONTENT_WIDTH/2-40,&panel_font_24,i?0x63d9ca:0xdf9877);lv_label_set_text(brands[i],i?"Codex":"Claude");
-  states[i]=label(panels[i],22,34,CONTENT_WIDTH/2-40,&panel_font_30,0x8b9199);lv_label_set_text(states[i],"空闲");
-  details[i]=label(panels[i],22,70,CONTENT_WIDTH/2-40,&panel_font_16,0x8b9199);
-  for(int r=0;r<3;r++){lists[i][r]=label(panels[i],22,94+r*20,CONTENT_WIDTH/2-40,&panel_font_16,0x8b9199);lv_label_set_recolor(lists[i][r],true);}
+  brandIcons[i]=lv_img_create(panels[i]);lv_img_set_src(brandIcons[i],&panel_provider_logos[i]);lv_obj_set_pos(brandIcons[i],14,8);
+  lv_obj_set_style_img_recolor(brandIcons[i],lv_color_hex(providerColors[i]),0);lv_obj_set_style_img_recolor_opa(brandIcons[i],LV_OPA_COVER,0);
+  brands[i]=label(panels[i],40,6,width-50,&panel_font_24,providerColors[i]);lv_label_set_text(brands[i],providerNames[i]);
+  states[i]=label(panels[i],14,34,width-24,&panel_font_30,0x8b9199);lv_label_set_text(states[i],"空闲");
+  details[i]=label(panels[i],14,70,width-24,&panel_font_16,0x8b9199);
+  for(int r=0;r<3;r++)panel_row_init(&lists[i][r],panels[i],14,94+r*20,width-24,&panel_font_16);
   runners[i]=block(panels[i],0,170,96,2,0x6ab2ff);lv_obj_set_style_bg_opa(runners[i],LV_OPA_70,0);lv_obj_add_flag(runners[i],LV_OBJ_FLAG_HIDDEN);
  }
  banner=label(lv_scr_act(),22,152,CONTENT_WIDTH-40,&panel_font_16,0xffc36a);lv_obj_set_style_bg_color(banner,lv_color_hex(0),0);lv_obj_set_style_bg_opa(banner,LV_OPA_COVER,0);lv_label_set_text(banner,"请在电脑网页中配置 Wi-Fi");
@@ -117,27 +128,44 @@ static uint32_t state_color(const char *st){if(!strcmp(st,"working"))return 0x6a
 static void clock_text(char *out,size_t n,uint64_t from,uint64_t to){unsigned long sec=from&&to>=from?(to-from)/1000:0;snprintf(out,n,"%02lu:%02lu",sec/60,sec%60);}
 void panel_ui_json(const char *json){
  JsonDocument d;if(deserializeJson(d,json))return;if(d["type"]!="state")return;
- auto cfg=d["config"];int split=constrain(cfg["split"]|50,35,65)*CONTENT_WIDTH/100;bool swap=cfg["swap"]|false;int brightness=constrain(cfg["brightness"]|160,25,255);
+ auto cfg=d["config"];bool three=d["cards"].size()>=PANEL_COUNT;
+ int pairedWidth=three?CONTENT_WIDTH*2/3:CONTENT_WIDTH;
+ int split=constrain(cfg["split"]|50,35,65)*pairedWidth/100;bool swap=cfg["swap"]|false;int brightness=constrain(cfg["brightness"]|160,25,255);
  bool showTool=cfg["showTool"]|true,showElapsed=cfg["showElapsed"]|true;
  if(brightness!=lastBrightness){if(!screenLocked.load())setUpduty(255-brightness);lastBrightness=brightness;}
  panel_ui_connection("");
- for(int i=0;i<2;i++){
-  auto card=d["cards"][swap?1-i:i];const char *provider=card["provider"]|"";const char *st=card["state"]|"idle";const char *tool=card["tool"]|"";
-  int width=i?CONTENT_WIDTH-split:split;lv_obj_set_pos(panels[i],i?split:0,0);lv_obj_set_width(panels[i],width);for(auto *l:{brands[i],states[i],details[i],lists[i][0],lists[i][1],lists[i][2]})lv_obj_set_width(l,width-40);
-  bool claude=!strcmp(provider,"claude");lv_label_set_text(brands[i],claude?"Claude":"Codex");lv_obj_set_style_text_color(brands[i],lv_color_hex(color(cfg[claude?"claudeColor":"codexColor"],claude?0xdf9877:0x63d9ca)),0);
+ for(int i=0;i<PANEL_COUNT;i++){
+  if(i==2&&!three){lv_obj_add_flag(panels[i],LV_OBJ_FLAG_HIDDEN);continue;}
+  lv_obj_clear_flag(panels[i],LV_OBJ_FLAG_HIDDEN);
+  int cardIndex=i<2&&swap?1-i:i;
+  auto card=d["cards"][cardIndex];const char *provider=card["provider"]|"";const char *st=card["state"]|"idle";const char *tool=card["tool"]|"";
+  int width=i==0?split:i==1?pairedWidth-split:CONTENT_WIDTH-pairedWidth;
+  lv_obj_set_pos(panels[i],i==0?0:i==1?split:pairedWidth,0);lv_obj_set_width(panels[i],width);for(auto *l:{states[i],details[i]})lv_obj_set_width(l,width-24);
+  lv_obj_set_width(brands[i],width-50);
+  for(int r=0;r<3;r++)panel_row_width(&lists[i][r],width-24);
+  const lv_font_t *headingFont=width<144?&panel_font_16:&panel_font_24;
+  lv_obj_set_style_text_font(brands[i],headingFont,0);
+  lv_obj_set_style_text_font(states[i],width<150?&panel_font_16:&panel_font_30,0);
+  lv_obj_set_height(brands[i],lv_font_get_line_height(headingFont));
+  lv_obj_set_height(states[i],lv_font_get_line_height(width<150?&panel_font_16:&panel_font_30));
+  int brand=!strcmp(provider,"claude")?0:!strcmp(provider,"deepseek")?2:1;
+  const char *colorKey=brand==0?"claudeColor":brand==2?"deepseekColor":"codexColor";
+  lv_img_set_src(brandIcons[i],&panel_provider_logos[brand]);
+  lv_obj_set_style_img_recolor(brandIcons[i],lv_color_hex(color(cfg[colorKey],providerColors[brand])),0);
+  lv_label_set_text(brands[i],providerNames[brand]);lv_obj_set_style_text_color(brands[i],lv_color_hex(color(cfg[colorKey],providerColors[brand])),0);
   const char *text="空闲";uint32_t c=0x8b9199,strip=0x333333;
-  if(!strcmp(st,"working")){text="执行中";c=strip=0x6ab2ff;}else if(!strcmp(st,"waiting")){text="等你确认";c=strip=0xffc36a;}else if(!strcmp(st,"done")){text="做完了";c=strip=0x6ce0ac;}else if(!strcmp(st,"interrupted")){text="已中断";c=strip=0xe29494;}else if(!strcmp(st,"unknown")){text="状态待确认";}
+  if(!strcmp(st,"working")){text="执行中";c=strip=0x6ab2ff;}else if(!strcmp(st,"waiting")){text="等你确认";c=strip=0xffc36a;}else if(!strcmp(st,"done")){text="做完了";c=strip=0x6ce0ac;}else if(!strcmp(st,"interrupted")){text="已中断";c=strip=0xe29494;}else if(!strcmp(st,"unknown")){text=three?"待确认":"状态待确认";}
   lv_label_set_text(states[i],text);lv_obj_set_style_text_color(states[i],lv_color_hex(c),0);lv_obj_set_style_bg_color(strips[i],lv_color_hex(strip),0);
   uint64_t start=card["startedAt"]|0ULL,end=card["endedAt"]|0ULL,updated=card["updatedAt"]|0ULL,now=d["now"]|0ULL;char t[16],detail[120]="";
   if(!strcmp(st,"working")){clock_text(t,sizeof(t),start,now);const char *shown=showTool?tool:"";if(*shown&&showElapsed)snprintf(detail,sizeof(detail),"%s · %s",shown,t);else snprintf(detail,sizeof(detail),"%s",*shown?shown:showElapsed?t:"");}
   else if(!strcmp(st,"waiting")){clock_text(t,sizeof(t),updated,now);snprintf(detail,sizeof(detail),"已等 %s",t);}
   else if(!strcmp(st,"done")&&showElapsed&&start){clock_text(t,sizeof(t),start,end);snprintf(detail,sizeof(detail),"用时 %s",t);}
-  else if(!strcmp(st,"unknown"))snprintf(detail,sizeof(detail),"5 分钟没有新动静");
+  else if(!strcmp(st,"unknown"))snprintf(detail,sizeof(detail),"%s",end?"本轮结束需确认":"5 分钟没有新动静");
   lv_label_set_text(details[i],detail);
   // Up to three sessions: dot colour shows state, name is bright while it is still running.
-  for(int r=0;r<3;r++){auto row=card["rows"][r];const char *rs=row["state"]|"";char name[64],line[120]="";snprintf(name,sizeof(name),"%s",row["project"]|"");for(char *p=name;*p;p++)if(*p=='#')*p=' ';
-   if(*rs){bool active=!strcmp(rs,"working")||!strcmp(rs,"waiting");snprintf(line,sizeof(line),"#%06lx ●# #%06lx %s#",(unsigned long)state_color(rs),(unsigned long)(active?0xe4e4e4:0x8b9199),*name?name:"-");}
-   lv_label_set_text(lists[i][r],line);}
+  for(int r=0;r<3;r++){auto row=card["rows"][r];const char *rs=row["state"]|"";
+   bool active=!strcmp(rs,"working")||!strcmp(rs,"waiting");
+   panel_row_set(&lists[i][r],row["project"]|"",state_color(rs),active?0xe4e4e4:0x8b9199,*rs!=0);}
   if(strcmp(lastState[i],st)||lastWidth[i]!=width){animate(i,st,width);snprintf(lastState[i],sizeof(lastState[i]),"%s",st);lastWidth[i]=width;}
  }
 }

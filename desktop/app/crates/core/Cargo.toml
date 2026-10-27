@@ -1,0 +1,18 @@
+[package]
+name = "panel-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+anyhow.workspace = true
+parking_lot.workspace = true
+dirs = "7.0.0"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+indexmap = "2.14.2"
+rand = "0.10.3"
+zstd = "0.13"
+
+[dev-dependencies]
+tempfile = "3.27.0"

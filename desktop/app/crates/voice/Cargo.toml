@@ -1,0 +1,23 @@
+[package]
+name = "panel-voice"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+panel-core = { path = "../core" }
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+anyhow.workspace = true
+tokio.workspace = true
+parking_lot.workspace = true
+cpal = "0.18"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
+core-foundation = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

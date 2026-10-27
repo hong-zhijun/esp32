@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AI 状态屏</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="nav" aria-label="页面">
+      <button type="button" class="nav-item" data-page="status" aria-current="page">状态</button>
+      <button type="button" class="nav-item" data-page="voice">语音</button>
+      <button type="button" class="nav-item" data-page="device">设备</button>
+      <button type="button" class="nav-item" data-page="settings">设置</button>
+    </nav>
+
+    <main class="content">
+      <p id="notice" class="notice" role="alert" hidden></p>
+
+      <section class="page" data-page="status">
+        <div class="cards">
+          <article class="card" data-provider="claude" data-state="idle">
+            <header class="card-head">
+              <span class="swatch"></span>
+              <span class="brand">Claude</span>
+              <span class="card-pin tag" hidden>已固定</span>
+              <span class="card-count"></span>
+            </header>
+            <p class="card-state"></p>
+            <p class="card-headline"></p>
+            <p class="card-detail"></p>
+          </article>
+          <article class="card" data-provider="codex" data-state="idle">
+            <header class="card-head">
+              <span class="swatch"></span>
+              <span class="brand">Codex</span>
+              <span class="card-pin tag" hidden>已固定</span>
+              <span class="card-count"></span>
+            </header>
+            <p class="card-state"></p>
+            <p class="card-headline"></p>
+            <p class="card-detail"></p>
+          </article>
+          <article class="card" data-provider="deepseek" data-state="idle">
+            <header class="card-head">
+              <span class="swatch"></span>
+              <span class="brand">DeepSeek</span>
+              <span class="card-pin tag" hidden>已固定</span>
+              <span class="card-count"></span>
+            </header>
+            <p class="card-state"></p>
+            <p class="card-headline"></p>
+            <p class="card-detail"></p>
+          </article>
+        </div>
+
+        <p id="sourceStatus" class="status-line" role="status" hidden></p>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>会话</h2>
+            <span class="hint">完成提示会保留，直到清除</span>
+          </div>
+          <ul class="sessions" id="sessions"></ul>
+          <p class="empty" id="sessionsEmpty">暂无会话</p>
+        </div>
+      </section>
+
+      <section class="page" data-page="voice" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>语音</h2>
+            <button type="button" id="voiceCheck">重新检查</button>
+          </div>
+          <p id="voiceStatus" class="status-line" role="status">检查中…</p>
+          <label class="field">
+            <span>虚拟声卡</span>
+            <select id="outputDevice"></select>
+          </label>
+          <p class="hint">Mac 选择 BlackHole 2ch；Windows 选择 CABLE Input。</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>微信快捷键</h2>
+          </div>
+          <div class="row">
+            <span class="muted">当前</span>
+            <strong id="hotkeyLabel">—</strong>
+            <button type="button" id="hotkeyRecord">录制</button>
+            <button type="button" id="hotkeyTest">测试</button>
+          </div>
+          <div class="row">
+            <label class="field inline">
+              <span>预设</span>
+              <select id="hotkeyPreset">
+                <option value="">选择预设</option>
+                <option value="fn-space">Fn＋空格（Mac）</option>
+                <option value="f8">F8（Windows）</option>
+              </select>
+            </label>
+          </div>
+          <p id="hotkeyNote" class="hint" role="status">在微信输入法里把“启动语音输入”设为这里的快捷键。</p>
+        </div>
+
+        <div class="panel">
+          <label class="field">
+            <span>语音测试输入框（不会自动发送）</span>
+            <textarea id="dictationTest" rows="3" placeholder="点这里放置光标，再按屏幕开始录音。"></textarea>
+          </label>
+        </div>
+
+        <div class="panel">
+          <details open>
+            <summary>诊断日志</summary>
+            <div class="row debug-controls">
+              <button type="button" id="debugPause">暂停滚动</button>
+              <button type="button" id="debugClear">清空显示</button>
+            </div>
+            <div id="debugLog" class="debug-log" role="log" aria-label="诊断日志"></div>
+          </details>
+        </div>
+      </section>
+
+      <section class="page" data-page="device" hidden>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>屏幕</h2>
+          </div>
+          <p id="deviceStatus" class="status-line">—</p>
+          <p id="deviceMeta" class="hint"></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>屏幕记住的 Wi‑Fi</h2>
+          </div>
+          <ul id="knownWifi" class="list"></ul>
+          <p id="knownWifiEmpty" class="empty">屏幕还没有保存的 Wi‑Fi</p>
+        </div>
+
+        <form class="panel" id="provisionForm">
+          <div class="panel-head">
+            <h2>USB 配网</h2>
+            <button type="button" id="portsRefresh">刷新</button>
+          </div>
+          <p class="hint">首次连接保留 USB 数据线，关闭 Arduino 串口监视器。使用 2.4 GHz Wi‑Fi。</p>
+          <label class="field">
+            <span>USB 串口</span>
+            <select name="port" id="portSelect" required></select>
+          </label>
+          <label class="field">
+            <span>电脑局域网地址</span>
+            <select name="host" id="hostSelect" required></select>
+          </label>
+          <label class="field">
+            <span>Wi‑Fi 名称</span>
+            <input name="ssid" required maxlength="32" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Wi‑Fi 密码</span>
+            <input name="password" type="password" maxlength="63" autocomplete="off">
+          </label>
+          <div class="row">
+            <button type="submit" id="provisionButton" class="primary">写入 Wi‑Fi 设置</button>
+            <span id="provisionStatus" class="hint" role="status"></span>
+          </div>
+          <p class="hint">密码只用于本次写入，不会保存在电脑上。</p>
+        </form>
+      </section>
+
+      <section class="page" data-page="settings" hidden>
+        <form class="panel" id="screenForm">
+          <div class="panel-head">
+            <h2>屏幕外观</h2>
+            <span id="screenStatus" class="hint" role="status"></span>
+          </div>
+          <label class="field">
+            <span>Claude / Codex 分栏比例 <output id="splitValue"></output></span>
+            <input type="range" name="split" min="35" max="65" step="1">
+          </label>
+          <label class="field">
+            <span>背光亮度 <output id="brightnessValue"></output></span>
+            <input type="range" name="brightness" min="25" max="255" step="1">
+          </label>
+          <div class="row wrap">
+            <label class="field inline">
+              <span>Claude 标识</span>
+              <input type="color" name="claudeColor">
+            </label>
+            <label class="field inline">
+              <span>Codex 标识</span>
+              <input type="color" name="codexColor">
+            </label>
+            <label class="field inline">
+              <span>DeepSeek 标识</span>
+              <input type="color" name="deepseekColor">
+            </label>
+          </div>
+          <div class="row wrap">
+            <label class="check"><input type="checkbox" name="showTool">显示当前工具</label>
+            <label class="check"><input type="checkbox" name="showElapsed">显示运行时长</label>
+            <label class="check"><input type="checkbox" name="swap">交换 Claude / Codex 位置</label>
+          </div>
+          <p class="hint">DeepSeek 固定在第三列；比例用于分配前两列的宽度。改动会自动保存。</p>
+        </form>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>常规</h2>
+          </div>
+          <label class="check"><input type="checkbox" id="autostart">开机自启（在托盘后台运行）</label>
+          <p id="serverLine" class="hint">服务端口 —</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Claude Hooks</h2>
+          </div>
+          <p id="hooksStatus" class="status-line">检查中…</p>
+          <p id="hooksPath" class="hint"></p>
+          <div class="row">
+            <button type="button" id="hooksInstall" class="primary">安装 / 更新 Hooks</button>
+            <span id="hooksResult" class="hint" role="status"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

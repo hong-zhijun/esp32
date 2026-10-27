@@ -1,5 +1,7 @@
 # docs
 
+- `deepseek-status.md`：DeepSeek Harness 状态接入、三列屏幕布局与本机更新步骤。
+- `architecture.md`：当前 Rust 桌面端、状态来源、设备协议和语音桥架构。
 - `board-overview.md`：微雪 ESP32-S3-Touch-LCD-3.49 V2 板子介绍（V1/V2 差异、外设、屏幕参数）。
 - `reference/`：Arduino 环境搭建教程、开发板设置截图、Claude 桌面端文档等离线资料。
 - `research/`：状态屏方案调研（Claude/Codex 用量与状态监控相关开源项目）。

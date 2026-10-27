@@ -1,5 +1,7 @@
 # 本地 AI 状态屏
 
+> 当前电脑端使用 [Rust + Tauri 桌面程序](app/README.md)。本目录的 Node 版作为本地 SenseVoice 识别回退保留，以下说明只适用于该版本。
+
 ## 当前模式：无线微信语音
 
 默认通过 Wi-Fi 接收 ESP32 录音，转发到虚拟麦克风，由微信输入法输入文字，不再加载本地识别模型。
@@ -17,7 +19,7 @@ Mac 需要 BlackHole 2ch，Windows 需要 VB-CABLE，微信语音全局启动快
 离线模型使用 [SenseVoice int8 2025-09-09](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2)。
 解压到 `desktop/models/`，确保模型目录中包含 `model.int8.onnx` 和 `tokens.txt`，然后重启服务。
 
-把光标放入目标输入框，短按屏幕 BOOT 开始说话，再按一次结束。识别在 Mac 本地运行，说话停顿约 0.6 秒或连续录音约 2 秒时识别一段，模拟 Command+V 追加粘贴，不会按回车发送。结束录音只处理尚未输入的音频，不会重复粘贴整段。录音期间请保持光标在目标输入框，不要切换窗口。
+把光标放入目标输入框，点击屏幕右侧录音按钮开始说话，再点一次结束。识别在 Mac 本地运行，说话停顿约 0.6 秒或连续录音约 2 秒时识别一段，模拟 Command+V 追加粘贴，不会按回车发送。结束录音只处理尚未输入的音频，不会重复粘贴整段。录音期间请保持光标在目标输入框，不要切换窗口。
 首次使用按 macOS 提示允许控制 System Events，并在“系统设置 → 隐私与安全性 → 辅助功能”中允许实际启动服务的应用（例如 Terminal 或 Codex）；若提示自动化权限，也需允许。
 粘贴成功后会尝试恢复原剪贴板；粘贴失败时屏幕显示已识别文字，电脑日志记录权限错误。如果剪贴板已有识别结果，可手动 Command+V。
 最近一段录音保存在 `desktop/data/voice/last.wav`，每次覆盖；不应提交或分享私人录音。
