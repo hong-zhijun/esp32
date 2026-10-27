@@ -38,6 +38,8 @@ const DEBUG_NAMES = {
   'device-connected': '屏幕连接',
   'device-disconnected': '屏幕断开',
   'mdns-error': '电脑广播异常',
+  'keyboard-enter': '屏幕回车',
+  'keyboard-error': '回车失败',
 };
 const DEBUG_LIMIT = 300;
 const SESSION_LIMIT = 30;
@@ -148,9 +150,12 @@ function cardDetail(card, screen, now) {
 }
 
 function renderCards(current) {
+  let visible = 0;
   for (const card of current.cards) {
     const root = $(`.card[data-provider="${card.provider}"]`);
     if (!root) continue;
+    root.hidden = current.running?.[card.provider] === false;
+    if (!root.hidden) visible++;
     const empty = !card.id;
     root.dataset.state = empty ? 'idle' : card.state;
     $('.card-state', root).textContent = empty ? '空闲' : STATE_NAMES[card.state];
@@ -159,6 +164,7 @@ function renderCards(current) {
     $('.card-count', root).textContent = card.count ? `共 ${card.count} 个会话` : '';
     $('.card-pin', root).hidden = empty || current.pinned[card.provider] !== card.id;
   }
+  $('#appsEmpty').hidden = visible > 0;
 }
 
 function createSessionRow(session) {
@@ -643,6 +649,8 @@ function renderServer(server) {
 // ---- Wiring ------------------------------------------------------------------------------
 
 function applySnapshot(next) {
+  $('#keyboardPermission').hidden = next.keyboard?.ready !== false;
+  $('#keyboardPermissionText').textContent = next.keyboard?.message || '';
   renderCards(next);
   renderSessions(next);
   renderDevice(next.device, next.now);
@@ -656,6 +664,10 @@ function applySnapshot(next) {
     code.startsWith('deepseek_') ? `DeepSeek 会话暂时无法读取（${code}）` : `会话来源异常（${code}）`
   ).join('；');
 }
+
+$('#openKeyboardSettings').addEventListener('click', () => {
+  invoke('open_keyboard_settings').catch(error => showNotice(errorText(error)));
+});
 
 for (const button of $$('.nav-item')) {
   button.addEventListener('click', () => showPage(button.dataset.page));

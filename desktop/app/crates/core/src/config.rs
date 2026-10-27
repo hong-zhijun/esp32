@@ -22,7 +22,7 @@ impl Default for ScreenConfig {
             split: 50,
             brightness: 160,
             claude_color: "#df9877".into(),
-            codex_color: "#63d9ca".into(),
+            codex_color: "#ffffff".into(),
             deepseek_color: default_deepseek_color(),
             show_tool: true,
             show_elapsed: true,

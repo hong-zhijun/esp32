@@ -10,6 +10,7 @@ use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use panel_core::config::ScreenConfig;
 use panel_core::debug_log::now_ms;
+use panel_core::presence::RunningProviders;
 use panel_core::state::Card;
 use panel_voice::Reply;
 use parking_lot::Mutex;
@@ -18,7 +19,7 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -52,6 +53,7 @@ pub struct DeviceHub {
     info: Mutex<DeviceInfo>,
     voice_owner: Mutex<Option<u64>>,
     next_id: AtomicU64,
+    last_enter: Mutex<Option<Instant>>,
 }
 
 impl DeviceHub {
@@ -62,6 +64,7 @@ impl DeviceHub {
             info: Mutex::new(DeviceInfo::default()),
             voice_owner: Mutex::new(None),
             next_id: AtomicU64::new(1),
+            last_enter: Mutex::new(None),
         }
     }
 
@@ -183,15 +186,22 @@ struct StateFrame<'a> {
     now: i64,
     config: &'a ScreenConfig,
     cards: &'a [Card],
+    running: RunningProviders,
 }
 
 /// The state frame the board renders from; `type` must be the first JSON key.
-pub fn state_frame(now: i64, config: &ScreenConfig, cards: &[Card]) -> String {
+pub fn state_frame(
+    now: i64,
+    config: &ScreenConfig,
+    cards: &[Card],
+    running: RunningProviders,
+) -> String {
     serde_json::to_string(&StateFrame {
         kind: "state",
         now,
         config,
         cards,
+        running,
     })
     .unwrap_or_default()
 }
@@ -344,8 +354,39 @@ fn handle_json(state: &AppState, id: u64, outbound: &UnboundedSender<Message>, m
         Some("ack") => acknowledge(state, message),
         Some("hello") => state.devices.hello(message, now),
         Some("voice") => voice_action(state, id, outbound, message),
+        Some("key") => enter_action(state, message),
         _ => {}
     }
+}
+
+/// Only paired device sockets reach this handler. Accept only plain Enter and suppress
+/// accidental duplicate presses; do not expose arbitrary keys or command execution.
+fn take_enter(message: &Value, last: &mut Option<Instant>, now: Instant) -> bool {
+    if message.get("key").and_then(Value::as_str) != Some("Enter") {
+        return false;
+    }
+    if last.is_some_and(|previous| now.duration_since(previous) < Duration::from_millis(250)) {
+        return false;
+    }
+    *last = Some(now);
+    true
+}
+
+fn enter_action(state: &AppState, message: &Value) {
+    if !take_enter(
+        message,
+        &mut state.devices.last_enter.lock(),
+        Instant::now(),
+    ) {
+        return;
+    }
+    let log = state.log.clone();
+    tokio::task::spawn_blocking(move || {
+        match panel_voice::send_enter() {
+            Ok(()) => log.add(json!({"event": "keyboard-enter"})),
+            Err(error) => log.add(json!({"event": "keyboard-error", "message": error})),
+        };
+    });
 }
 
 fn record_performance(state: &AppState, message: &Value) {
@@ -456,6 +497,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn enter_button_rejects_other_keys_and_suppresses_duplicate_presses() {
+        let now = Instant::now();
+        let mut last = None;
+        for invalid in [
+            json!({}),
+            json!({"key":"A"}),
+            json!({"key":["Enter"]}),
+            json!({"key":"Return"}),
+        ] {
+            assert!(!take_enter(&invalid, &mut last, now));
+            assert!(last.is_none());
+        }
+        let enter = json!({"type":"key", "key":"Enter"});
+        assert!(take_enter(&enter, &mut last, now));
+        assert!(!take_enter(
+            &enter,
+            &mut last,
+            now + Duration::from_millis(100)
+        ));
+        assert!(!take_enter(
+            &enter,
+            &mut last,
+            now + Duration::from_millis(249)
+        ));
+        assert!(take_enter(
+            &enter,
+            &mut last,
+            now + Duration::from_millis(250)
+        ));
+    }
+
+    #[test]
     fn token_comparison_is_exact() {
         assert!(token_matches(Some("abc"), "abc"));
         assert!(!token_matches(Some("abd"), "abc"));
@@ -484,9 +557,19 @@ mod tests {
 
     #[test]
     fn state_frame_starts_with_type_and_keeps_firmware_fields() {
-        let frame = state_frame(42, &ScreenConfig::default(), &[]);
+        let frame = state_frame(
+            42,
+            &ScreenConfig::default(),
+            &[],
+            RunningProviders::default(),
+        );
         assert!(frame.starts_with(r##"{"type":"state","now":42,"config":{"split":50,"brightness":160,"claudeColor":"#df9877""##), "{frame}");
-        assert!(frame.ends_with(r#""cards":[]}"#));
+        let parsed: Value = serde_json::from_str(&frame).unwrap();
+        assert_eq!(parsed["cards"], json!([]));
+        assert_eq!(
+            parsed["running"],
+            json!({"claude":false,"codex":false,"deepseek":false})
+        );
     }
 
     #[test]
@@ -508,11 +591,20 @@ mod tests {
             }
         }
         let snapshot = state.snapshot(1_793_070_000_000);
-        let frame = state_frame(42, &ScreenConfig::default(), &snapshot.cards);
+        let running = RunningProviders {
+            codex: true,
+            ..Default::default()
+        };
+        let frame = state_frame(42, &ScreenConfig::default(), &snapshot.cards, running);
         assert!(frame.len() < MAX_MESSAGE_BYTES, "{} bytes", frame.len());
         let parsed: Value = serde_json::from_str(&frame).unwrap();
         assert_eq!(parsed["cards"][0]["provider"], "claude");
         assert_eq!(parsed["cards"][1]["provider"], "codex");
         assert_eq!(parsed["cards"][2]["provider"], "deepseek");
+        // Offline providers keep their history and stable protocol indices.
+        assert_eq!(
+            parsed["running"],
+            json!({"claude":false,"codex":true,"deepseek":false})
+        );
     }
 }

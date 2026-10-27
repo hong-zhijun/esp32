@@ -6,6 +6,7 @@ extern "C" {
 void panel_ui_init(void);
 // Consume touch requests in the main loop, outside the LVGL task lock.
 bool panel_ui_take_voice_request(void);
+bool panel_ui_take_enter_request(void);
 void panel_ui_set_locked(bool locked);
 bool panel_ui_is_locked(void);
 void panel_ui_json(const char *json);

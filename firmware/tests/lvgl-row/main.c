@@ -6,6 +6,9 @@
 #include <string.h>
 #include "panel_ui.h"
 extern void stress_panel_rows(const char *json);
+extern void stress_panel_visibility(const char *json);
+extern void verify_panel_controls(void);
+extern void verify_title_overflow(void);
 void setUpduty(uint16_t duty) { (void)duty; }
 
 static lv_color_t pixels[640 * 172];
@@ -28,6 +31,7 @@ int main(int argc,char **argv) {
     static lv_disp_drv_t driver;lv_disp_drv_init(&driver);driver.hor_res=640;driver.ver_res=172;driver.draw_buf=&draw;driver.flush_cb=flush;lv_disp_drv_register(&driver);
     lv_obj_set_style_bg_color(lv_scr_act(),lv_color_hex(0),0);
     panel_ui_init();
+    verify_panel_controls();
     char json[16384];
     if(argc>1){FILE *input=fopen(argv[1],"rb");assert(input);size_t count=fread(json,1,sizeof(json)-1,input);json[count]=0;fclose(input);}
     else strcpy(json,"{\"type\":\"state\",\"config\":{\"split\":50},\"cards\":[{\"provider\":\"claude\",\"state\":\"working\",\"rows\":[{\"state\":\"working\",\"project\":\"这是一段超过屏幕宽度的中文对话标题\"},{\"state\":\"done\",\"project\":\"A very long conversation title\"},{\"state\":\"idle\",\"project\":\"短标题\"}]},{\"provider\":\"codex\",\"state\":\"done\",\"rows\":[{\"state\":\"done\",\"project\":\"阅读 ESP32 代码\"},{\"state\":\"idle\",\"project\":\"标题包含 #ff0000 字符\"}]},{\"provider\":\"deepseek\",\"state\":\"waiting\",\"rows\":[{\"state\":\"waiting\",\"project\":\"等待确认的 DeepSeek 长标题\"}]}]}");
@@ -35,7 +39,15 @@ int main(int argc,char **argv) {
         panel_ui_json(json);lv_obj_update_layout(lv_scr_act());lv_tick_inc(1000);lv_timer_handler();
     }
     save("actual-panel.ppm");
+    panel_ui_voice(VOICE_LISTENING,"","");
+    lv_tick_inc(200);lv_timer_handler();save("recording-panel.ppm");
+    panel_ui_voice(VOICE_HIDDEN,"","");
     stress_panel_rows(json);
-    puts("PASS: production UI, 100 updates, 3 split widths, row height/prefix/UTF-8, empty rows, logo/provider matching, heading bounds and color changes");
+    stress_panel_visibility(json);
+    save("visible-panel.ppm");
+    verify_title_overflow();
+    puts("PASS: minimal production UI, 100 updates, 3 split widths, selected task title, UTF-8 truncation, status glyphs, 20px logos, footer bounds and visibility");
+    puts("PASS: all 8 running-app combinations, swapping, split widths, full status width, voice area, legacy two-card frames and reopening");
+    puts("PASS: 76px square icon buttons, touch dispatch/coalescing, lock, waveform bounds and recording cleanup state");
     return 0;
 }

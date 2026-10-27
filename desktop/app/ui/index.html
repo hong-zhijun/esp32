@@ -18,6 +18,10 @@
 
     <main class="content">
       <p id="notice" class="notice" role="alert" hidden></p>
+      <div id="keyboardPermission" class="notice" role="status" hidden>
+        <p id="keyboardPermissionText"></p>
+        <button id="openKeyboardSettings" type="button">打开辅助功能设置</button>
+      </div>
 
       <section class="page" data-page="status">
         <div class="cards">
@@ -56,6 +60,7 @@
           </article>
         </div>
 
+        <p id="appsEmpty" class="empty" hidden>打开 Claude、ChatGPT / Codex 或 DeepSeek Harness 后显示状态。</p>
         <p id="sourceStatus" class="status-line" role="status" hidden></p>
         <div class="panel">
           <div class="panel-head">

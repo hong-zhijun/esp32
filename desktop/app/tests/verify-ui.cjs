@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
     const failures = [];
     page.on('pageerror', e => failures.push(e.message));
     const now = Date.now();
-    const screen = { split: 50, brightness: 160, claudeColor: '#df9877', codexColor: '#63d9ca', deepseekColor: '#7c9fff', showTool: true, showElapsed: true, swap: false };
+    const screen = { split: 50, brightness: 160, claudeColor: '#df9877', codexColor: '#ffffff', deepseekColor: '#7c9fff', showTool: true, showElapsed: true, swap: false };
     const cards = ['claude', 'codex', 'deepseek'].map((provider, i) => ({ provider, id: 'task-'+i,
       state: ['working','done','waiting'][i], title: ['更新项目界面','接口回归测试','DeepSeek Harness 接入'][i],
       project: 'project', tool: 'pwsh', startedAt: now-90000, endedAt: now-10000, updatedAt: now-15000, unread: i===1, count:1, rows:[] }));
@@ -28,6 +28,8 @@ const assert = require('node:assert/strict');
     await page.addInitScript(({snapshot})=>{
       window.__calls=[];
       const listeners={};
+      window.__pushSnapshot=(running)=>listeners.snapshot({payload:{...snapshot,running}});
+      window.__pushKeyboardStatus=(keyboard)=>listeners.snapshot({payload:{...snapshot,keyboard}});
       window.__TAURI__={event:{listen:async(name,fn)=>{listeners[name]=fn;return ()=>{};}},core:{invoke:async(name,args)=>{
         window.__calls.push({name,args});
         switch(name){
@@ -53,6 +55,25 @@ const assert = require('node:assert/strict');
     const output = process.env.PANEL_SCREENSHOT || path.join(__dirname,'../../../build/deepseek-desktop.png');
     fs.mkdirSync(path.dirname(output),{recursive:true});
     await page.screenshot({path:output,fullPage:true});
+    for(let mask=0;mask<8;mask++) {
+      const providers=['claude','codex','deepseek'];
+      const running=Object.fromEntries(providers.map((p,i)=>[p,!!(mask&(1<<i))]));
+      await page.evaluate(running=>window.__pushSnapshot(running),running);
+      assert.deepEqual(await page.locator('.card:visible').evaluateAll(nodes=>nodes.map(n=>n.dataset.provider)),providers.filter(p=>running[p]));
+      assert.equal(await page.locator('#appsEmpty').isVisible(),mask===0);
+      assert.equal(await page.locator('.session').count(),3,'history survives app exits');
+    }
+    // Reconnect to an older backend that has no presence map.
+    await page.evaluate(()=>window.__pushSnapshot(undefined));
+    assert.equal(await page.locator('.card:visible').count(),3);
+    assert.equal(await page.locator('#keyboardPermission').isVisible(),false,'legacy snapshots show no permission warning');
+    await page.evaluate(()=>window.__pushKeyboardStatus({ready:false,message:'需要辅助功能权限'}));
+    assert.equal(await page.locator('#keyboardPermission').isVisible(),true);
+    assert.equal(await page.locator('#keyboardPermissionText').textContent(),'需要辅助功能权限');
+    await page.getByRole('button',{name:'打开辅助功能设置',exact:true}).click();
+    assert(await page.evaluate(()=>window.__calls.some(c=>c.name==='open_keyboard_settings')));
+    await page.evaluate(()=>window.__pushKeyboardStatus({ready:true,message:'键盘控制已就绪'}));
+    assert.equal(await page.locator('#keyboardPermission').isVisible(),false,'permission grants clear the warning on the next snapshot');
     await page.getByRole('button',{name:'设置',exact:true}).click();
     await page.locator('input[name="deepseekColor"]').fill('#829cff');
     await page.waitForTimeout(450);
@@ -63,6 +84,6 @@ const assert = require('node:assert/strict');
     await page.getByRole('button',{name:'状态',exact:true}).click();
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
     assert.deepEqual(failures,[]);
-    console.log(JSON.stringify({passed:true,screenshot:output,checks:['three cards','DeepSeek waiting state','pin command','color save','420px layout','no script errors']}));
+    console.log(JSON.stringify({passed:true,screenshot:output,checks:['three cards','all 8 running-app combinations','history preserved','legacy snapshots','keyboard permission notice and settings command','DeepSeek waiting state','pin command','color save','420px layout','no script errors']}));
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

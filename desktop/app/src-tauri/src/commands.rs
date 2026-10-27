@@ -181,3 +181,30 @@ pub async fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> 
 fn current_exe() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|error| format!("无法定位程序路径：{error}"))
 }
+
+/// Opens the pane; the user must explicitly grant access in macOS.
+#[tauri::command]
+pub async fn open_keyboard_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        async_runtime::spawn_blocking(|| {
+            let status = std::process::Command::new("/usr/bin/open")
+                .arg(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                )
+                .status()
+                .map_err(|error| error.to_string())?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("无法打开系统设置".into())
+            }
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("请在系统设置中检查键盘控制权限".into())
+    }
+}

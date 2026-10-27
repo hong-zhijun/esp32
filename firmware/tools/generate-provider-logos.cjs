@@ -36,5 +36,5 @@ const size = 20;
     '};',''
   );
   fs.writeFileSync(path.join(firmware,'ai-status-screen/provider_logos.h'),lines.join('\n'));
-  console.log('Generated three 20x20 LVGL alpha masks: 1200 bytes of pixel data total.');
+  console.log(`Generated three ${size}x${size} LVGL alpha masks: ${3*size*size} bytes of pixel data total.`);
 })().catch(error => { console.error(error); process.exitCode=1; });

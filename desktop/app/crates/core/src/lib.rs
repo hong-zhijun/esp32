@@ -7,6 +7,7 @@ pub mod hook;
 pub mod hooks_install;
 pub mod identity;
 pub mod paths;
+pub mod presence;
 pub mod sources;
 pub mod state;
 pub mod store;

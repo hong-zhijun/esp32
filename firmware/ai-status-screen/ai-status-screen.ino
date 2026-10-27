@@ -39,6 +39,11 @@ void startListening(){
 void stopListening(){listening=false;voiceAt=millis();showVoice(VOICE_RECOGNIZING,"","",0);voice_stop();sendVoice("stop");}
 void logVoiceButton(const char *source){JsonDocument d;d["type"]="voice-debug";d["source"]=source;d["deviceMs"]=millis();String msg;serializeJson(d,msg);if(connected)socketClient.sendTXT(msg);}
 void toggleListening(){if(listening)stopListening();else if(voiceMode!=VOICE_RECOGNIZING)startListening();}
+void sendEnter(){
+ if(panel_ui_is_locked()||!connected)return;
+ JsonDocument d;d["type"]="key";d["key"]="Enter";
+ String msg;serializeJson(d,msg);socketClient.sendTXT(msg);
+}
 void toggleScreenLock(){
  bool locked=!panel_ui_is_locked();
  if(locked&&listening)stopListening();
@@ -123,7 +128,7 @@ void socketStep(){
 void addSsids(JsonArray a){for(int i=0;i<profileCount();i++)a.add(profileAt(i).ssid);}
 // First message on every connection: this panel's current Wi-Fi and the networks it remembers.
 void sendHello(){
- JsonDocument d;d["type"]="hello";d["fw"]=6;d["ip"]=WiFi.localIP().toString();d["ssid"]=active.ssid;addSsids(d["ssids"].to<JsonArray>());
+ JsonDocument d;d["type"]="hello";d["fw"]=13;d["ip"]=WiFi.localIP().toString();d["ssid"]=active.ssid;addSsids(d["ssids"].to<JsonArray>());
  String msg;serializeJson(d,msg);socketClient.sendTXT(msg);
 }
 // The computer removed a saved network. A live connection on it stays up until it drops by itself.
@@ -163,6 +168,7 @@ void loop(){
  pollKeys();
  bool touchRequested=panel_ui_take_voice_request();
  if(touchRequested&&!panel_ui_is_locked()){Serial.println("VOICE_TOUCH");logVoiceButton("touch");toggleListening();}
+ if(panel_ui_take_enter_request())sendEnter();
  while(Serial.available()){
   char c=Serial.read();if(c=='\n'){serialCommand();serialLine="";}
   else if(serialLine.length()<2048)serialLine+=c;else serialLine="";

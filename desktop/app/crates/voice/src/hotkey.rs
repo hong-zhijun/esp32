@@ -32,6 +32,22 @@ pub(crate) fn send(hotkey: &Hotkey) -> Result<()> {
     platform::send(hotkey)
 }
 
+/// Read-only permission check; never requests or changes Accessibility access.
+pub(crate) fn keyboard_allowed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::keyboard_allowed()
+    }
+    #[cfg(windows)]
+    {
+        true
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        false
+    }
+}
+
 #[cfg(windows)]
 mod platform {
     use anyhow::{bail, Result};
@@ -177,8 +193,12 @@ mod platform {
         fn AXIsProcessTrusted() -> u8;
     }
 
+    pub(super) fn keyboard_allowed() -> bool {
+        unsafe { AXIsProcessTrusted() != 0 }
+    }
+
     pub(super) fn send(hotkey: &Hotkey) -> Result<()> {
-        if unsafe { AXIsProcessTrusted() } == 0 {
+        if !keyboard_allowed() {
             bail!("请在 系统设置 → 隐私与安全性 → 辅助功能 中允许本程序控制键盘");
         }
         let key = key_code(&hotkey.key)?;

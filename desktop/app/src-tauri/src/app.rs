@@ -43,6 +43,7 @@ pub fn run() {
             commands::forget_wifi,
             commands::get_autostart,
             commands::set_autostart,
+            commands::open_keyboard_settings,
         ])
         .setup(setup)
         .on_window_event(|window, event| {

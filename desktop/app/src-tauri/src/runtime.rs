@@ -6,6 +6,7 @@ use panel_core::config::{AppConfig, ScreenConfig, VoiceConfig};
 use panel_core::debug_log::{now_ms, DebugLog};
 use panel_core::identity::{self, DeviceIdentity};
 use panel_core::paths::{self, DataPaths};
+use panel_core::presence::{ProcessMonitor, RunningProviders};
 use panel_core::sources::Sources;
 use panel_core::state::{session_key, Card, Provider, Session, State};
 use panel_core::store;
@@ -25,6 +26,8 @@ pub struct UiSnapshot {
     pub now: i64,
     pub config: AppConfig,
     pub cards: [Card; 3],
+    pub running: RunningProviders,
+    pub keyboard: panel_voice::KeyboardStatus,
     pub sessions: Vec<Session>,
     pub pinned: Pins,
     pub device: DeviceInfo,
@@ -58,6 +61,7 @@ struct Runtime {
     state: State,
     sources: Sources,
     acknowledged: BTreeMap<String, i64>,
+    processes: ProcessMonitor,
 }
 
 pub struct AppState {
@@ -108,6 +112,8 @@ impl AppState {
         let voice = voice_enabled.then(|| build_voice(&config, &log));
         let acknowledged = store::read_json(&paths.acknowledged()).unwrap_or_default();
         let sources = Sources::new(&paths, paths::codex_home());
+        let mut processes = ProcessMonitor::default();
+        processes.poll();
         Ok(Self {
             identity,
             log,
@@ -121,6 +127,7 @@ impl AppState {
                 state: State::default(),
                 sources,
                 acknowledged,
+                processes,
             }),
             paths,
         })
@@ -214,15 +221,17 @@ impl AppState {
 
     /// Builds the current view. With `poll` set, the sources are read first.
     pub fn refresh(&self, now: i64, poll: bool) -> Refresh {
-        let (config, snapshot, pinned, source_errors) = {
+        let (config, snapshot, pinned, source_errors, running) = {
             let mut runtime = self.runtime.lock();
             let Runtime {
                 config,
                 state,
                 sources,
                 acknowledged,
+                processes,
             } = &mut *runtime;
             if poll {
+                processes.poll();
                 sources.tick(state, now);
             }
             state.apply_acknowledged(acknowledged);
@@ -236,13 +245,17 @@ impl AppState {
                 state.snapshot(now),
                 pinned,
                 sources.errors().to_vec(),
+                processes.running(),
             )
         };
-        let device_frame = device_server::state_frame(now, &config.screen, &snapshot.cards);
+        let device_frame =
+            device_server::state_frame(now, &config.screen, &snapshot.cards, running);
         let ui = UiSnapshot {
             now,
             config,
             cards: snapshot.cards,
+            running,
+            keyboard: panel_voice::keyboard_status(),
             sessions: snapshot.sessions,
             pinned,
             device: self.devices.info(),
@@ -263,6 +276,7 @@ impl AppState {
             now,
             &runtime.config.screen,
             &runtime.state.snapshot(now).cards,
+            runtime.processes.running(),
         )
     }
 
