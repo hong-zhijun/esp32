@@ -2,7 +2,7 @@
 
 ESP32-S3-Touch-LCD-3.49 V2 状态屏，搭配 Rust + Tauri 桌面程序，显示 Claude、Codex、DeepSeek Harness 的任务状态，并通过无线麦克风桥接微信输入法。
 
-当前桌面版本为 **0.2.0**，固件版本为 **13**。屏幕采用黑底极简仪表布局，从左到右显示正在运行的 Claude、ChatGPT、DeepSeek 和右侧录音 / 回车图标按钮；ChatGPT 列使用 Codex 的任务状态。程序退出后对应栏目自动隐藏，剩余栏目自动调整宽度。
+当前桌面版本为 **0.2.0**，固件版本为 **15**。屏幕采用黑底极简仪表布局，从左到右显示正在运行的 Claude、ChatGPT、DeepSeek、录音 / 回车图标按钮和 Wi-Fi / 竖电池状态栏；点击最右侧状态栏可查看设备详情。ChatGPT 列使用 Codex 的任务状态。程序退出后对应栏目自动隐藏，剩余栏目自动调整宽度。
 
 - [桌面程序与首次使用](desktop/app/README.md)
 - [固件编译、烧录和排版回归](firmware/README.md)

@@ -7,6 +7,8 @@
 #include "panel_ui.h"
 #include "voice_bsp.h"
 #include "wifi_profiles.h"
+#include "user_config.h"
+#include "battery_level.h"
 #include "src/lcd_bl_bsp/lcd_bl_pwm_bsp.h"
 #define BOOT_KEY 0
 #define PWR_KEY 16
@@ -26,6 +28,21 @@ unsigned long netAt=0,attemptAt=0,lastMessage=0,lastLog=0;
 bool micReady=false,listening=false,pwrArmed=false,bootDown=false;int voiceMode=VOICE_HIDDEN;
 unsigned long loopPrevious=0,maxLoopMs=0,maxReadMs=0,maxSendMs=0,performanceAt=0;uint32_t readErrors=0,sendErrors=0;
 unsigned long voiceAt=0,voiceHideAt=0,bootChangedAt=0,pwrDownAt=0;int16_t voiceBuf[VOICE_CHUNK];
+unsigned long deviceStatusAt=0;int batteryMv=0,batteryPercent=-1;
+void updateDeviceStatus(){
+ if(deviceStatusAt&&millis()-deviceStatusAt<1000)return;
+ deviceStatusAt=millis();uint32_t sum=0;
+ for(int i=0;i<8;i++)sum+=analogReadMilliVolts(EXAMPLE_PIN_NUM_BAT_ADC);
+ // Official V2 ADC example uses calibrated ADC1/GPIO4 voltage times three.
+ int measuredMv=(sum*3+4)/8;
+ if(battery_percent_from_mv(measuredMv)<0){batteryMv=measuredMv;batteryPercent=-1;}
+ else{batteryMv=batteryPercent<0?measuredMv:(batteryMv*7+measuredMv+4)/8;batteryPercent=battery_percent_from_mv(batteryMv);}
+ int wifi=WiFi.status()==WL_CONNECTED?PANEL_WIFI_CONNECTED:(linkPhase==LINK_SCAN||linkPhase==LINK_JOIN||linkPhase==LINK_WAIT)?PANEL_WIFI_CONNECTING:PANEL_WIFI_OFFLINE;
+ String ssid=wifi==PANEL_WIFI_CONNECTED?WiFi.SSID():active.ssid;
+ String ip=wifi==PANEL_WIFI_CONNECTED?WiFi.localIP().toString():"";
+ int rssi=wifi==PANEL_WIFI_CONNECTED?WiFi.RSSI():0;
+ if(example_lvgl_lock(20)){panel_ui_status(wifi,rssi,connected,batteryPercent);panel_ui_device_info(ssid.c_str(),ip.c_str(),rssi,batteryMv);example_lvgl_unlock();}
+}
 void message(const char *text){if(example_lvgl_lock(100)){panel_ui_connection(text);example_lvgl_unlock();}}
 void showVoice(int mode,const char *title,const char *text,unsigned long hideAfter){voiceMode=mode;voiceHideAt=hideAfter?millis()+hideAfter:0;if(example_lvgl_lock(100)){panel_ui_voice(mode,title,text);example_lvgl_unlock();}}
 void sendVoice(const char *action){JsonDocument d;d["type"]="voice";d["action"]=action;String msg;serializeJson(d,msg);socketClient.sendTXT(msg);}
@@ -128,7 +145,7 @@ void socketStep(){
 void addSsids(JsonArray a){for(int i=0;i<profileCount();i++)a.add(profileAt(i).ssid);}
 // First message on every connection: this panel's current Wi-Fi and the networks it remembers.
 void sendHello(){
- JsonDocument d;d["type"]="hello";d["fw"]=13;d["ip"]=WiFi.localIP().toString();d["ssid"]=active.ssid;addSsids(d["ssids"].to<JsonArray>());
+ JsonDocument d;d["type"]="hello";d["fw"]=15;d["ip"]=WiFi.localIP().toString();d["ssid"]=active.ssid;addSsids(d["ssids"].to<JsonArray>());
  String msg;serializeJson(d,msg);socketClient.sendTXT(msg);
 }
 // The computer removed a saved network. A live connection on it stays up until it drops by itself.
@@ -148,6 +165,7 @@ void serialCommand(){
  else if(doc["type"]=="status"){   // diagnostics: link phase, Wi-Fi driver status, current network and computer
   JsonDocument d;d["phase"]=(int)linkPhase;d["wifi"]=(int)WiFi.status();d["ssid"]=active.ssid;d["ip"]=WiFi.localIP().toString();d["rssi"]=WiFi.RSSI();
   d["host"]=active.host;d["port"]=active.port;d["hasId"]=active.id.length()>0;d["ws"]=connected;d["candidates"]=netCount;d["try"]=netTry;
+  d["fw"]=15;d["batteryMv"]=batteryMv;d["batteryPercent"]=batteryPercent;
   String out;serializeJson(d,out);Serial.println("STATUS "+out);
  }
 }
@@ -159,6 +177,7 @@ void wsEvent(WStype_t type,uint8_t *payload,size_t length){
 }
 void setup(){
  Serial.begin(115200);Serial.setTxTimeoutMs(0);i2c_master_Init();lvgl_port_init();lcd_bl_pwm_bsp_init(95);
+ analogReadResolution(12);analogSetPinAttenuation(EXAMPLE_PIN_NUM_BAT_ADC,ADC_11db);updateDeviceStatus();
  pinMode(BOOT_KEY,INPUT_PULLUP);pinMode(PWR_KEY,INPUT_PULLUP);micReady=voice_init();Serial.printf("MIC_READY %d\n",micReady);
  profilesLoad();
  socketClient.onEvent(wsEvent);socketClient.setReconnectInterval(5000);socketClient.enableHeartbeat(30000,5000,2);startWifi();Serial.println("AI_PANEL_READY");
@@ -175,6 +194,7 @@ void loop(){
  }
  wifiStep();
  if(linkPhase==LINK_UP){socketStep();socketClient.loop();}
+ updateDeviceStatus();
  if(listening){
   if(!connected){listening=false;voice_stop();showVoice(VOICE_ERROR,"电脑未连接","录音已取消",3000);}
   else{unsigned long readAt=millis();int n=voice_read(voiceBuf,VOICE_CHUNK);maxReadMs=max(maxReadMs,millis()-readAt);

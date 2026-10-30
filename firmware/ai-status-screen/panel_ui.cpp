@@ -10,7 +10,7 @@ LV_FONT_DECLARE(panel_font_20);
 LV_FONT_DECLARE(panel_font_28);
 LV_FONT_DECLARE(panel_font_meta_16);
 
-static constexpr int PANEL_COUNT=3,CONTROL_WIDTH=92,BUTTON_SIZE=76,CONTENT_WIDTH=640-CONTROL_WIDTH;
+static constexpr int PANEL_COUNT=3,CONTROL_WIDTH=92,STATUS_WIDTH=48,BUTTON_SIZE=76,CONTENT_WIDTH=640-CONTROL_WIDTH-STATUS_WIDTH;
 static constexpr int PAD=12,BRAND_X=38,BRAND_Y=24,STATE_Y=54,TITLE_Y=91,FOOTER_Y=124;
 static constexpr uint32_t TEXT_COLOR=0xeceef3,MUTED_COLOR=0x929ba9,DIVIDER_COLOR=0x242930;
 static lv_obj_t *panels[PANEL_COUNT],*brands[PANEL_COUNT],*states[PANEL_COUNT],*titles[PANEL_COUNT];
@@ -22,23 +22,33 @@ static const uint32_t providerColors[PANEL_COUNT]={0xdf9877,0xffffff,0x7c9fff};
 static int lastBrightness=-1;
 static std::atomic<bool> screenLocked{false};
 static lv_obj_t *voiceButton,*enterButton,*voiceBars[5];
+static lv_obj_t *statusRail,*wifiLabel,*batteryLabel;
+static int statusWifi=PANEL_WIFI_OFFLINE,statusBars=0,statusBattery=-1;
+static bool statusComputer=false;
+static lv_obj_t *deviceOverlay,*deviceCard,*deviceClose,*deviceValues[6];
+static char deviceSsid[33]="",deviceIp[16]="";
+static int deviceRssi=0,deviceBatteryMv=0;
 static int displayedVoiceMode=VOICE_HIDDEN;
 static uint32_t recordingTick=0;
 static std::atomic<bool> voiceRequested{false},enterRequested{false};
 static void voice_button_state(int mode);
+static void refresh_device_details(void);
+static bool device_details_open(){return deviceOverlay&&!lv_obj_has_flag(deviceOverlay,LV_OBJ_FLAG_HIDDEN);}
+static void close_device_details(){if(deviceOverlay)lv_obj_add_flag(deviceOverlay,LV_OBJ_FLAG_HIDDEN);}
 
 bool panel_ui_take_voice_request(void){return voiceRequested.exchange(false);}
 bool panel_ui_take_enter_request(void){return enterRequested.exchange(false);}
 bool panel_ui_is_locked(void){return screenLocked.load();}
 void panel_ui_set_locked(bool locked){
  screenLocked.store(locked);voiceRequested.store(false);enterRequested.store(false);
+ if(locked)close_device_details();
  setUpduty(locked?255:255-(lastBrightness<0?160:lastBrightness));
 }
 static void enter_click(lv_event_t *event){
- if(!screenLocked.load())enterRequested.store(true);
+ if(!screenLocked.load()&&!device_details_open())enterRequested.store(true);
 }
 static void voice_click(lv_event_t *event){
- if(screenLocked.load())return;
+ if(screenLocked.load()||device_details_open())return;
  if(voiceRequested.exchange(true))return;
  if(displayedVoiceMode==VOICE_LISTENING){displayedVoiceMode=VOICE_RECOGNIZING;voice_button_state(VOICE_RECOGNIZING);}
 }
@@ -90,6 +100,101 @@ static lv_obj_t *control_button(lv_obj_t *column,int y,lv_event_cb_t callback){
  lv_obj_set_style_bg_color(button,lv_color_hex(0x3b4552),LV_STATE_PRESSED);
  lv_obj_clear_flag(button,LV_OBJ_FLAG_SCROLLABLE);lv_obj_add_event_cb(button,callback,LV_EVENT_PRESSED,NULL);return button;
 }
+static uint32_t wifi_color(){return statusWifi==PANEL_WIFI_CONNECTED?(statusComputer?0xd9e0e9:0xe9bd76):statusWifi==PANEL_WIFI_CONNECTING?0xe9bd76:MUTED_COLOR;}
+static uint32_t battery_color(){return statusBattery<0?MUTED_COLOR:statusBattery<=10?0xf4a3ae:statusBattery<=20?0xe9bd76:0xd9e0e9;}
+static void refresh_device_details(){
+ if(!device_details_open())return;
+ lv_label_set_text(deviceValues[0],*deviceSsid?deviceSsid:"未连接");
+ char value[48];
+ if(statusWifi==PANEL_WIFI_CONNECTED)snprintf(value,sizeof(value),"%d dBm",deviceRssi);
+ else snprintf(value,sizeof(value),"%s",statusWifi==PANEL_WIFI_CONNECTING?"连接中":"未连接");
+ lv_label_set_text(deviceValues[1],value);
+ lv_label_set_text(deviceValues[2],statusWifi==PANEL_WIFI_CONNECTED&&*deviceIp?deviceIp:"--");
+ lv_label_set_text(deviceValues[3],statusComputer?"已连接":"未连接");
+ if(statusBattery>=0&&deviceBatteryMv>0)snprintf(value,sizeof(value),"%d.%02d V",deviceBatteryMv/1000,(deviceBatteryMv%1000)/10);
+ else snprintf(value,sizeof(value),"--");
+ lv_label_set_text(deviceValues[4],value);
+ if(statusBattery>=0)snprintf(value,sizeof(value),"%d%%  估算",statusBattery);
+ else snprintf(value,sizeof(value),"--");
+ lv_label_set_text(deviceValues[5],value);
+ lv_obj_set_style_text_color(deviceValues[1],lv_color_hex(wifi_color()),0);
+ lv_obj_set_style_text_color(deviceValues[3],lv_color_hex(statusComputer?0x91c7ac:0xe9bd76),0);
+ lv_obj_set_style_text_color(deviceValues[4],lv_color_hex(battery_color()),0);
+ lv_obj_set_style_text_color(deviceValues[5],lv_color_hex(battery_color()),0);
+}
+static void device_details_click(lv_event_t *event){
+ if(screenLocked.load())return;
+ if(device_details_open()){close_device_details();return;}
+ voiceRequested.store(false);enterRequested.store(false);
+ lv_obj_clear_flag(deviceOverlay,LV_OBJ_FLAG_HIDDEN);refresh_device_details();
+}
+static void device_details_close(lv_event_t *event){if(!screenLocked.load())close_device_details();}
+static void create_device_details(){
+ // Cover task cards and controls to consume touches; leave the status rail available to close.
+ deviceOverlay=block(lv_scr_act(),0,0,CONTENT_WIDTH+CONTROL_WIDTH,172,0);
+ lv_obj_add_flag(deviceOverlay,LV_OBJ_FLAG_CLICKABLE);lv_obj_clear_flag(deviceOverlay,LV_OBJ_FLAG_SCROLLABLE);
+ lv_obj_add_event_cb(deviceOverlay,device_details_close,LV_EVENT_CLICKED,NULL);
+ deviceCard=block(deviceOverlay,8,6,576,160,0x14191f);lv_obj_set_style_radius(deviceCard,14,0);
+ lv_obj_add_flag(deviceCard,LV_OBJ_FLAG_CLICKABLE);lv_obj_clear_flag(deviceCard,LV_OBJ_FLAG_SCROLLABLE);
+ auto *heading=label(deviceCard,16,11,300,&panel_font_20,TEXT_COLOR);lv_label_set_text(heading,"设备详情");
+ block(deviceCard,16,44,544,1,DIVIDER_COLOR);
+ deviceClose=lv_btn_create(deviceCard);lv_obj_remove_style_all(deviceClose);lv_obj_set_pos(deviceClose,516,4);lv_obj_set_size(deviceClose,48,40);
+ lv_obj_set_style_radius(deviceClose,10,0);lv_obj_set_style_bg_opa(deviceClose,LV_OPA_COVER,0);lv_obj_set_style_bg_color(deviceClose,lv_color_hex(0x20262e),0);
+ lv_obj_set_style_bg_color(deviceClose,lv_color_hex(0x3b4552),LV_STATE_PRESSED);lv_obj_clear_flag(deviceClose,LV_OBJ_FLAG_SCROLLABLE);
+ lv_obj_add_event_cb(deviceClose,device_details_close,LV_EVENT_CLICKED,NULL);
+ auto *closeText=label(deviceClose,4,8,40,&panel_font_20,TEXT_COLOR);lv_label_set_text(closeText,"关闭");
+ const char *names[]={"Wi-Fi","信号","IP","电脑","电压","电量"};
+ for(int i=0;i<6;i++){
+  int x=i<3?16:308,y=54+(i%3)*34;
+  auto *name=label(deviceCard,x,y,60,i==0||i==2?&lv_font_montserrat_16:&panel_font_20,MUTED_COLOR);lv_label_set_text(name,names[i]);
+  deviceValues[i]=label(deviceCard,x+64,y,i<3?208:188,&panel_font_20,TEXT_COLOR);
+ }
+ lv_obj_add_flag(deviceOverlay,LV_OBJ_FLAG_HIDDEN);
+}
+void panel_ui_device_info(const char *ssid,const char *ip,int rssi,int batteryMv){
+ if(!ssid)ssid="";if(!ip)ip="";
+ if(!strcmp(deviceSsid,ssid)&&!strcmp(deviceIp,ip)&&deviceRssi==rssi&&deviceBatteryMv==batteryMv)return;
+ snprintf(deviceSsid,sizeof(deviceSsid),"%s",ssid);snprintf(deviceIp,sizeof(deviceIp),"%s",ip);deviceRssi=rssi;deviceBatteryMv=batteryMv;
+ refresh_device_details();
+}
+static void status_draw(lv_event_t *event){
+ auto *ctx=lv_event_get_draw_ctx(event);lv_area_t bounds;lv_obj_get_coords(statusRail,&bounds);
+ const int x=bounds.x1,y=bounds.y1;
+ lv_draw_arc_dsc_t arc;lv_draw_arc_dsc_init(&arc);arc.width=3;arc.rounded=1;
+ lv_point_t center={(lv_coord_t)(x+20),(lv_coord_t)(y+39)};
+ const int radii[3]={4,9,14};
+ for(int i=0;i<3;i++){
+  arc.color=lv_color_hex(i<statusBars?wifi_color():0x3a434e);
+  lv_draw_arc(ctx,&arc,&center,radii[i],225,315);
+ }
+ lv_draw_rect_dsc_t rect;lv_draw_rect_dsc_init(&rect);rect.bg_color=lv_color_hex(wifi_color());rect.radius=LV_RADIUS_CIRCLE;
+ lv_area_t dot={(lv_coord_t)(x+18),(lv_coord_t)(y+38),(lv_coord_t)(x+22),(lv_coord_t)(y+42)};lv_draw_rect(ctx,&rect,&dot);
+ if(statusWifi==PANEL_WIFI_OFFLINE){
+  lv_draw_line_dsc_t slash;lv_draw_line_dsc_init(&slash);slash.width=3;slash.round_start=slash.round_end=1;slash.color=lv_color_hex(MUTED_COLOR);
+  lv_point_t a={(lv_coord_t)(x+8),(lv_coord_t)(y+24)},b={(lv_coord_t)(x+31),(lv_coord_t)(y+44)};lv_draw_line(ctx,&slash,&a,&b);
+ }
+ uint32_t batteryColor=battery_color();lv_draw_rect_dsc_init(&rect);rect.bg_color=lv_color_hex(batteryColor);rect.radius=2;
+ lv_area_t cap={(lv_coord_t)(x+16),(lv_coord_t)(y+91),(lv_coord_t)(x+24),(lv_coord_t)(y+94)};lv_draw_rect(ctx,&rect,&cap);
+ rect.bg_opa=LV_OPA_TRANSP;rect.border_color=lv_color_hex(batteryColor);rect.border_width=3;rect.radius=5;
+ lv_area_t body={(lv_coord_t)(x+9),(lv_coord_t)(y+95),(lv_coord_t)(x+30),(lv_coord_t)(y+128)};lv_draw_rect(ctx,&rect,&body);
+ lv_draw_rect_dsc_init(&rect);rect.radius=1;
+ int filled=statusBattery<0?0:(statusBattery+19)/20;
+ for(int i=0;i<5;i++){
+  rect.bg_color=lv_color_hex(i<filled?batteryColor:0x303841);
+  lv_area_t segment={(lv_coord_t)(x+14),(lv_coord_t)(y+120-i*5),(lv_coord_t)(x+25),(lv_coord_t)(y+122-i*5)};lv_draw_rect(ctx,&rect,&segment);
+ }
+}
+void panel_ui_status(int wifiState,int rssi,bool computerConnected,int batteryPercent){
+ int bars=wifiState==PANEL_WIFI_CONNECTED?(rssi>=-60?3:rssi>=-70?2:1):0;
+ int battery=batteryPercent<0?-1:batteryPercent>100?100:batteryPercent;
+ if(wifiState==statusWifi&&bars==statusBars&&computerConnected==statusComputer&&battery==statusBattery)return;
+ statusWifi=wifiState;statusBars=bars;statusComputer=computerConnected;statusBattery=battery;
+ if(!statusRail)return;
+ lv_obj_set_style_text_color(wifiLabel,lv_color_hex(wifi_color()),0);
+ lv_obj_set_style_text_color(batteryLabel,lv_color_hex(battery_color()),0);
+ char value[8];if(battery<0)snprintf(value,sizeof(value),"--");else snprintf(value,sizeof(value),"%d%%",battery);
+ lv_label_set_text(batteryLabel,value);lv_obj_invalidate(statusRail);refresh_device_details();
+}
 void panel_ui_init(){
  lv_obj_set_style_bg_color(lv_scr_act(),lv_color_hex(0),0);lv_obj_clear_flag(lv_scr_act(),LV_OBJ_FLAG_SCROLLABLE);
  for(int i=0;i<PANEL_COUNT;i++){
@@ -117,6 +222,14 @@ void panel_ui_init(){
  auto *returnIcon=lv_line_create(enterButton);lv_obj_remove_style_all(returnIcon);lv_line_set_points(returnIcon,returnPoints,6);
  lv_obj_set_style_line_width(returnIcon,2,0);lv_obj_set_style_line_rounded(returnIcon,true,0);
  lv_obj_set_style_line_color(returnIcon,lv_color_hex(TEXT_COLOR),0);lv_obj_clear_flag(returnIcon,LV_OBJ_FLAG_CLICKABLE);
+ statusRail=block(lv_scr_act(),CONTENT_WIDTH+CONTROL_WIDTH+2,6,40,160,0x14191f);lv_obj_set_style_radius(statusRail,14,0);
+ lv_obj_clear_flag(statusRail,LV_OBJ_FLAG_SCROLLABLE);lv_obj_add_event_cb(statusRail,status_draw,LV_EVENT_DRAW_MAIN,NULL);
+ lv_obj_add_flag(statusRail,LV_OBJ_FLAG_CLICKABLE);lv_obj_set_ext_click_area(statusRail,6);
+ lv_obj_add_event_cb(statusRail,device_details_click,LV_EVENT_CLICKED,NULL);
+ wifiLabel=label(statusRail,0,49,40,&lv_font_montserrat_14,MUTED_COLOR);lv_label_set_text(wifiLabel,"Wi-Fi");
+ batteryLabel=label(statusRail,0,136,40,&lv_font_montserrat_14,MUTED_COLOR);lv_label_set_text(batteryLabel,"--");
+ lv_obj_set_style_text_align(wifiLabel,LV_TEXT_ALIGN_CENTER,0);lv_obj_set_style_text_align(batteryLabel,LV_TEXT_ALIGN_CENTER,0);
+ create_device_details();
  voice_button_state(VOICE_HIDDEN);lv_timer_create(voice_clock,50,NULL);
 }
 void panel_ui_voice_partial(const char *text){}
@@ -155,6 +268,8 @@ void panel_ui_json(const char *json){
  }
  int pairedWidth=visible==3?CONTENT_WIDTH*2/3:CONTENT_WIDTH;
  int split=constrain(cfg["split"]|50,35,65)*pairedWidth/100;
+ // Keep both brand names readable after reserving the device status rail.
+ if(visible==3)split=constrain(split,128,pairedWidth-128);
  bool showTool=cfg["showTool"]|true,showElapsed=cfg["showElapsed"]|true;
  if(brightness!=lastBrightness){if(!screenLocked.load())setUpduty(255-brightness);lastBrightness=brightness;}
  panel_ui_connection("");int x=0;

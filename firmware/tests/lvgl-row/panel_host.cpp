@@ -1,6 +1,7 @@
 #include "lvgl.h"
 #include <cassert>
 #include <string>
+#include "../../ai-status-screen/battery_level.h"
 extern "C" {
 LV_FONT_DECLARE(panel_font_16);
 LV_FONT_DECLARE(panel_font_24);
@@ -15,7 +16,7 @@ LV_FONT_DECLARE(panel_font_meta_16);
 extern "C" void verify_panel_controls(void) {
     auto press=[](lv_obj_t *button){lv_event_send(button,LV_EVENT_PRESSED,NULL);lv_event_send(button,LV_EVENT_RELEASED,NULL);};
     lv_obj_update_layout(lv_scr_act());
-    assert(CONTENT_WIDTH+CONTROL_WIDTH==640);
+    assert(CONTENT_WIDTH+CONTROL_WIDTH+STATUS_WIDTH==640);
     auto *column=lv_obj_get_parent(voiceButton);
     assert(column==lv_obj_get_parent(enterButton));
     assert(lv_obj_get_x(column)==CONTENT_WIDTH);
@@ -60,6 +61,86 @@ extern "C" void verify_panel_controls(void) {
     panel_ui_voice(VOICE_HIDDEN,"","");
     assert(!lv_obj_has_state(voiceButton,LV_STATE_DISABLED));
 }
+extern "C" void verify_device_status(void) {
+    assert(battery_percent_from_mv(0)==-1&&battery_percent_from_mv(5000)==-1);
+    assert(battery_percent_from_mv(3300)==0&&battery_percent_from_mv(4200)==100);
+    int previous=0;
+    for(int mv=2800;mv<=4350;mv++) {int percent=battery_percent_from_mv(mv);assert(percent>=previous&&percent<=100);previous=percent;}
+    lv_obj_update_layout(lv_scr_act());
+    assert(lv_obj_get_x(statusRail)>=CONTENT_WIDTH+CONTROL_WIDTH);
+    assert(lv_obj_get_x(statusRail)+lv_obj_get_width(statusRail)<=640);
+    for(auto *item:{wifiLabel,batteryLabel}) {
+        assert(lv_obj_get_y(item)+lv_obj_get_height(item)<=lv_obj_get_height(statusRail));
+    }
+    for(int percent:{-1,0,10,20,80,100}) {
+        panel_ui_status(PANEL_WIFI_CONNECTED,-52,true,percent);lv_obj_update_layout(lv_scr_act());
+        assert(statusBars==3&&statusBattery==percent);
+        assert(!strcmp(lv_label_get_text(batteryLabel),percent<0?"--":(std::to_string(percent)+"%").c_str()));
+        lv_point_t size;lv_txt_get_size(&size,lv_label_get_text(batteryLabel),&lv_font_montserrat_14,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+        assert(size.x<=lv_obj_get_width(batteryLabel));
+        lv_refr_now(NULL);
+    }
+    panel_ui_status(PANEL_WIFI_CONNECTED,-66,false,20);assert(statusBars==2&&wifi_color()==0xe9bd76);
+    panel_ui_status(PANEL_WIFI_CONNECTED,-80,true,10);assert(statusBars==1&&battery_color()==0xf4a3ae);
+    panel_ui_status(PANEL_WIFI_CONNECTING,0,false,-1);assert(statusBars==0&&statusBattery==-1);lv_refr_now(NULL);
+    panel_ui_status(PANEL_WIFI_OFFLINE,0,false,-1);lv_refr_now(NULL);
+    panel_ui_status(PANEL_WIFI_CONNECTED,-52,true,80);
+}
+static lv_point_t detailTouchPoint;
+static lv_indev_state_t detailTouchState=LV_INDEV_STATE_REL;
+extern "C" void verify_device_details(void) {
+    lv_indev_drv_t driver;lv_indev_drv_init(&driver);driver.type=LV_INDEV_TYPE_POINTER;
+    driver.read_cb=[](lv_indev_drv_t *,lv_indev_data_t *data){data->point=detailTouchPoint;data->state=detailTouchState;};
+    auto *pointer=lv_indev_drv_register(&driver);
+    auto tap=[](int x,int y){
+        detailTouchPoint={(lv_coord_t)x,(lv_coord_t)y};detailTouchState=LV_INDEV_STATE_PR;
+        lv_tick_inc(40);lv_timer_handler();detailTouchState=LV_INDEV_STATE_REL;lv_tick_inc(40);lv_timer_handler();
+    };
+    assert(!device_details_open());
+    panel_ui_status(PANEL_WIFI_CONNECTED,-49,true,92);
+    panel_ui_device_info("办公室 Wi-Fi #1","192.168.255.254",-49,4128);
+    tap(620,38);assert(device_details_open());
+    assert(!strcmp(lv_label_get_text(deviceValues[0]),"办公室 Wi-Fi #1"));
+    assert(!strcmp(lv_label_get_text(deviceValues[1]),"-49 dBm"));
+    assert(!strcmp(lv_label_get_text(deviceValues[2]),"192.168.255.254"));
+    assert(!strcmp(lv_label_get_text(deviceValues[3]),"已连接"));
+    assert(!strcmp(lv_label_get_text(deviceValues[4]),"4.12 V"));
+    assert(!strcmp(lv_label_get_text(deviceValues[5]),"92%  估算"));
+    tap(546,70);tap(546,128); // Both hardware-action buttons are covered by the modal.
+    assert(device_details_open()&&!panel_ui_take_voice_request()&&!panel_ui_take_enter_request());
+    panel_ui_json("{\"type\":\"state\",\"cards\":[{\"provider\":\"claude\",\"state\":\"working\",\"title\":\"实时任务更新\"}]}");
+    assert(device_details_open());
+    panel_ui_status(PANEL_WIFI_CONNECTED,-73,false,20);
+    panel_ui_device_info("ABCDEFGHIJKLMNOPQRSTUVWXYZ123456","10.0.0.2",-73,3680);
+    lv_obj_update_layout(lv_scr_act());
+    assert(!strcmp(lv_label_get_text(deviceValues[1]),"-73 dBm"));
+    assert(!strcmp(lv_label_get_text(deviceValues[3]),"未连接"));
+    assert(!strcmp(lv_label_get_text(deviceValues[4]),"3.68 V"));
+    for(auto *value:deviceValues) {
+        lv_point_t size;lv_txt_get_size(&size,lv_label_get_text(value),&panel_font_20,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+        assert(size.x<=lv_obj_get_width(value));
+        assert(lv_obj_get_y(value)+lv_obj_get_height(value)<=lv_obj_get_height(deviceCard));
+        assert(!lv_label_get_recolor(value));
+    }
+    panel_ui_status(PANEL_WIFI_CONNECTING,0,false,-1);panel_ui_device_info("","",0,0);
+    assert(!strcmp(lv_label_get_text(deviceValues[0]),"未连接"));
+    assert(!strcmp(lv_label_get_text(deviceValues[1]),"连接中"));
+    for(int i:{2,4,5})assert(!strcmp(lv_label_get_text(deviceValues[i]),"--"));
+    panel_ui_status(PANEL_WIFI_OFFLINE,0,false,-1);
+    assert(!strcmp(lv_label_get_text(deviceValues[1]),"未连接"));
+    tap(548,30);assert(!device_details_open()); // Dedicated close button.
+    tap(620,150);assert(device_details_open()); // Battery percentage area hits the rail.
+    tap(638,38);assert(!device_details_open()); // Enlarged touch target at the screen edge.
+    tap(620,38);assert(device_details_open());
+    panel_ui_set_locked(true);assert(!device_details_open());
+    tap(620,38);assert(!device_details_open());
+    panel_ui_set_locked(false);tap(620,38);assert(device_details_open());
+    tap(2,2);assert(!device_details_open()); // Outside the card consumes and closes the modal.
+    panel_ui_status(PANEL_WIFI_CONNECTED,-49,true,92);panel_ui_device_info("办公室 Wi-Fi","192.168.1.108",-49,4128);
+    lv_indev_delete(pointer);
+    puts("PASS: device details pointer taps, both rail icons, enlarged target, close/backdrop, modal touch isolation, live data, long SSID, offline/unknown values and lock");
+}
+extern "C" void toggle_device_details_preview(void){lv_event_send(statusRail,LV_EVENT_CLICKED,NULL);}
 extern "C" void stress_panel_rows(const char *json) {
     JsonDocument document;assert(!deserializeJson(document,json));
     // The selected card title takes precedence over the urgency-sorted session list.
