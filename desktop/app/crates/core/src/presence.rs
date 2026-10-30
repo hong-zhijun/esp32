@@ -1,8 +1,13 @@
-//! Running applications are independent of task history. Poll executable identities only;
-//! never infer presence from old logs or search arbitrary command-line text.
+//! Running applications are independent of task history. Match executable identities;
+//! Windows additionally checks candidate process roles and known Node CLI entry points.
 use crate::state::Provider;
 use serde::Serialize;
-use sysinfo::{ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
+#[cfg(not(windows))]
+use sysinfo::ProcessStatus;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+#[cfg(windows)]
+mod windows;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct RunningProviders {
@@ -37,24 +42,32 @@ impl Default for ProcessMonitor {
 
 impl ProcessMonitor {
     /// Refresh membership and executable paths every tick, including exec() under an
-    /// existing PID. Do not collect CPU, memory, environment or arguments.
+    /// existing PID. Do not collect CPU, memory or environment. On Windows only,
+    /// read arguments for recognized executables and Node to distinguish their roles.
     pub fn poll(&mut self) {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
             ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
         );
-        let mut running = RunningProviders::default();
-        for process in self.system.processes().values() {
-            if process.status() == ProcessStatus::Zombie {
-                continue;
-            }
-            let Some(exe) = process.exe() else { continue };
-            if let Some(provider) = executable_provider(&exe.to_string_lossy()) {
-                running.include(provider);
-            }
+        #[cfg(windows)]
+        {
+            self.running = windows::poll(&mut self.system);
         }
-        self.running = running;
+        #[cfg(not(windows))]
+        {
+            let mut running = RunningProviders::default();
+            for process in self.system.processes().values() {
+                if process.status() == ProcessStatus::Zombie {
+                    continue;
+                }
+                let Some(exe) = process.exe() else { continue };
+                if let Some(provider) = executable_provider(&exe.to_string_lossy()) {
+                    running.include(provider);
+                }
+            }
+            self.running = running;
+        }
     }
 
     pub fn running(&self) -> RunningProviders {

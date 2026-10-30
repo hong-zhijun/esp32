@@ -38,7 +38,9 @@ cargo run -p ai-status-panel
 
 ## 程序运行检测
 
-每秒读取一次系统进程的可执行文件路径，识别 Claude、ChatGPT / Codex、DeepSeek Harness 及独立运行的原生 `claude`、`codex`、`dsh` CLI。最小化和后台运行仍算已打开；仅关闭窗口但程序仍驻留时不会隐藏。macOS 只识别应用主程序，忽略嵌套的 Electron Helper、崩溃报告和内置 CLI，避免主程序退出后辅助进程残留导致误显示。不读取或保存进程参数、环境变量。
+Windows / macOS 每秒读取一次系统进程的可执行文件路径，识别 Claude、ChatGPT / Codex、DeepSeek Harness 及独立运行的原生 `claude`、`codex`、`dsh` CLI。最小化和后台运行仍算已打开；仅关闭窗口但主程序仍驻留时不会隐藏。macOS 只识别应用主程序，忽略嵌套的 Electron Helper、崩溃报告和内置 CLI。
+
+Windows 同时支持普通安装和 Microsoft Store / MSIX 安装。由于 Electron 辅助进程也使用主程序的 `.exe`，仅对已识别的可执行文件和 `node.exe` 读取参数，用于排除 `--type` / crashpad 辅助进程，以及精确识别 npm 的 `@anthropic-ai/claude-code/cli.js` 和 `@openai/codex/bin/codex.js` 入口；不会在任意参数中搜索应用名称。通过父进程链排除同来源的子进程，并检查启动时间，避免父 PID 被复用后误判。应用 `resources` 下的内置 CLI、Claude 管理的 `Claude/claude-code` 和 Codex 管理的 `OpenAI/Codex/bin` 副本即使残留也不维持栏目；独立安装的 CLI 仍可单独显示。不读取环境变量，进程参数仅在内存中用于识别，不写日志、不持久化，也不发送至界面或设备。
 
 桌面状态卡片和 fw=7 屏幕只显示正在运行的来源。退出后约 1 秒隐藏，剩余栏目占满状态区（fw=8 为 548 像素）；仅剩一栏时全宽显示，全部退出时状态区留空，右侧按钮区保留。分栏比例和交换仍作用于同时显示的 Claude / ChatGPT；其余两栏组合等宽。历史会话、固定选择和完成提示保留，重新启动程序后恢复显示。运行状态与任务执行状态分别判断，不会将程序启动误判为任务开始。
 

@@ -12,7 +12,7 @@
 
 电脑端每秒增量读取日志、更新状态机，并向界面与板子推送快照。状态优先级为等待确认、执行中、未清除的完成提示、其他状态；工作或等待状态超过 5 分钟没有新事件时显示待确认。
 
-`core/presence.rs` 每秒通过系统进程的可执行路径独立检测程序运行状态，不依赖日志时间；忽略 macOS 嵌套 Helper / 内置 CLI 和僵尸进程，不采集命令行或环境。桌面卡片和 fw=7 根据 `running` 显示栏目，历史会话仍保留；主程序最小化或后台运行时继续显示。
+`core/presence.rs` 每秒通过系统进程的可执行路径独立检测程序运行状态，不依赖日志时间；忽略 macOS 嵌套 Helper / 内置 CLI 和僵尸进程。Windows 的 `core/presence/windows.rs` 仅刷新已识别可执行文件及 Node 的参数，排除 Electron `--type` / crashpad 辅助进程、已知桌面内置 CLI 和同来源进程的后代；父链检查启动时间以防 PID 复用。Node 只匹配已知 npm 包的实际入口脚本。参数只在内存中用于识别，不记录、不发送；不读取进程环境。桌面卡片和 fw≥7 根据 `running` 显示栏目，历史会话仍保留；主程序最小化或后台运行时继续显示。
 
 Claude 使用 Hooks 事件，并读取对话标题元数据；Windows 同时跟踪普通 AppData 和 Claude MSIX 隔离目录的 Hooks 文件。Codex 使用 rollout 日志与会话索引。DeepSeek 使用 Harness v4 的 JSONL 或独立追加 Zstandard 帧。标题变化不改变状态时间或完成提示。
 
